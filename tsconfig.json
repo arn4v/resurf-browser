@@ -9,10 +9,15 @@
     "sourceMap": true,
     "strict": true,
     "jsx": "react-jsx",
-    "baseUrl": ".",
     "outDir": "dist",
     "moduleResolution": "node",
-    "resolveJsonModule": true
+    "resolveJsonModule": true,
+    "forceConsistentCasingInFileNames": true,
+    "baseUrl": ".",
+    "paths": {
+      "~/*": ["src/renderer/*"],
+      "~/shared-types/*": ["src/shared-types/*"]
+    }
   },
   "include": ["src", "forge.config.ts"]
 }

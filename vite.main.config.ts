@@ -1,4 +1,5 @@
 import { defineConfig } from "vite";
+import tsconfigPaths from "vite-tsconfig-paths";
 
 // https://vitejs.dev/config
 export default defineConfig({
@@ -8,6 +9,7 @@ export default defineConfig({
     mainFields: ["module", "jsnext:main", "jsnext"],
   },
   plugins: [
+    tsconfigPaths(),
     {
       name: "restart",
       closeBundle() {
