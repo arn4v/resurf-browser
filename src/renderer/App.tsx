@@ -2,16 +2,26 @@ import React, { useEffect } from "react";
 import { Panel, PanelGroup, PanelResizeHandle } from "react-resizable-panels";
 import { Sidebar } from "./components/core/Sidebar";
 import { NewTabDialog } from "./components/core/NewTabDialog";
+import { sendIpcMessage } from "./lib/ipc";
+import {
+  MainProcessEmittedEvents,
+  ControlEmittedEvents,
+} from "~/shared-types/ipc_events";
+import { useIpcListener } from "./hooks/useIpcListener";
 
 export function App() {
   const [defaultSize, setDefaultSize] = React.useState<number | null>(null);
 
   useEffect(() => {
-    electron.ipcRenderer.send("sidebar-ready");
-    electron.ipcRenderer.on("set-initial-sidebar-width", (_, width: number) => {
-      setDefaultSize(width);
-    });
+    sendIpcMessage(ControlEmittedEvents.TabsReady);
   }, []);
+  useIpcListener(
+    MainProcessEmittedEvents.SidebarSetInitialWidth,
+    (_, width: number) => {
+      setDefaultSize(width);
+    }
+  );
+  console.log(defaultSize);
 
   if (!defaultSize) return null;
 

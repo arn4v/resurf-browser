@@ -1,4 +1,4 @@
-export enum RendererEmittedEvents {
+export enum ControlEmittedEvents {
   SidebarReady = "sidebar-ready",
   SidebarUpdateWidth = "sidebar-update-width",
   TabsReady = "tabs-ready",

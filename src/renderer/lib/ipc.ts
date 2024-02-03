@@ -1,4 +1,4 @@
-import { RendererEmittedEvents } from "~/shared-types/ipc_events";
+import { ControlEmittedEvents } from "~/shared-types/ipc_events";
 import type { RendererListener } from "../../preload/preload";
 
 export function registerIpcListener(
@@ -11,6 +11,8 @@ export function registerIpcListener(
   };
 }
 
-export function sendIpcMessage(channel: RendererEmittedEvents, ...args: any[]) {
+export function sendIpcMessage(channel: ControlEmittedEvents, ...args: any[]) {
   electron.ipcRenderer.send(channel, ...args);
 }
+
+registerIpcListener("test", () => console.log("test"));

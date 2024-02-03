@@ -4,7 +4,7 @@ import { useIpcListener } from "~/hooks/useIpcListener";
 import { sendIpcMessage } from "~/lib/ipc";
 import {
   MainProcessEmittedEvents,
-  RendererEmittedEvents,
+  ControlEmittedEvents,
 } from "~/shared-types/ipc_events";
 import { Tab, TabsMap } from "~/shared-types/tabs";
 
@@ -13,7 +13,7 @@ export function Sidebar() {
   const [activeTab, setActiveTab] = React.useState<Tab["id"] | null>(null);
 
   useDidMount(() => {
-    sendIpcMessage(RendererEmittedEvents.TabsReady);
+    sendIpcMessage(ControlEmittedEvents.TabsReady);
   });
 
   useIpcListener(
@@ -48,7 +48,7 @@ export function Sidebar() {
                 <button
                   onClick={() => {
                     sendIpcMessage(
-                      RendererEmittedEvents.TabsUpdateActiveTab,
+                      ControlEmittedEvents.TabsUpdateActiveTab,
                       tab.id
                     );
                   }}

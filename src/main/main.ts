@@ -8,7 +8,7 @@ import { KeyboardShortcuts } from "../shared-types/keyboard_shortcuts";
 import { Tab } from "~/shared-types/tabs";
 import {
   MainProcessEmittedEvents,
-  RendererEmittedEvents,
+  ControlEmittedEvents,
 } from "~/shared-types/ipc_events";
 
 export type Brand<Name extends string, T> = T & { __brand: Name };
@@ -67,6 +67,7 @@ class AppWindow {
         nodeIntegration: true,
       },
     });
+
     this.controlView = new BrowserView({
       webPreferences: {
         preload: preloadPath,
@@ -76,9 +77,6 @@ class AppWindow {
     });
     this.setupControlView();
     this.newTab("https://google.com", true);
-    this.setupResizeAndMoveListeners(this);
-    this.setupSidebarIPCListeners(this);
-
     this.shortcutManager = new ShortcutManager(this.window);
     this.registerShortcuts();
   }
@@ -100,7 +98,6 @@ class AppWindow {
 
   destroy() {
     this.window.destroy();
-    this.tabIdToBrowserView.clear();
     this.shortcutManager.unregisterShortcuts();
   }
 
@@ -170,6 +167,8 @@ class AppWindow {
   }
 
   emitControlEvent(channel: MainProcessEmittedEvents, ...args: any[]) {
+    this.controlView.webContents.emit("test");
+    ipcMain.emit("test");
     this.controlView.webContents.emit(channel, ...args);
   }
 
@@ -220,38 +219,39 @@ class AppWindow {
     };
   }
 
-  setupSidebarIPCListeners(app: AppWindow) {
-    ipcMain.on(RendererEmittedEvents.SidebarReady, (event) => {
+  setupSidebarIPCListeners() {
+    console.log("setting up listeners");
+    ipcMain.on(ControlEmittedEvents.SidebarReady, (event) => {
+      console.log("sidebar-ready");
       const storedWidth = preferencesStore.get("sidebarWidth");
-      this.emitControlEvent(
+      event.reply(
         MainProcessEmittedEvents.SidebarSetInitialWidth,
         storedWidth || 15
       );
     });
-    ipcMain.once(RendererEmittedEvents.TabsReady, () => {
+    ipcMain.on(ControlEmittedEvents.TabsReady, (event) => {
       this.emitControlEvent(
         MainProcessEmittedEvents.TabsSetInitialTabs,
         Object.fromEntries(this.tabs.entries())
       );
-      console.log(this.tabs.entries());
     });
     ipcMain.on(
-      RendererEmittedEvents.SidebarUpdateWidth,
+      ControlEmittedEvents.SidebarUpdateWidth,
       (_, sidebarWidth: number) => {
         preferencesStore.set("sidebarWidth", sidebarWidth);
-        app.getActiveView()?.setBounds(app.getStageBounds());
+        this.getActiveView()?.setBounds(this.getStageBounds());
       }
     );
   }
 
-  setupResizeAndMoveListeners(app: AppWindow) {
-    app.window.on("resize", () => {
-      const { width, height, x, y } = app.window.getBounds();
-      app.getActiveView()?.setBounds(app.getStageBounds());
+  setupResizeAndMoveListeners() {
+    this.window.on("resize", () => {
+      const { width, height, x, y } = this.window.getBounds();
+      this.getActiveView()?.setBounds(this.getStageBounds());
       preferencesStore.set("windowBounds", { width, height, x, y });
     });
-    app.window.on("move", () => {
-      const { width, height, x, y } = app.window.getBounds();
+    this.window.on("move", () => {
+      const { width, height, x, y } = this.window.getBounds();
       preferencesStore.set("windowBounds", { width, height, x, y });
     });
   }
@@ -260,12 +260,24 @@ class AppWindow {
 export const normalizeNumber = (value: number | undefined): number =>
   value && isFinite(1 / value) ? Math.trunc(value) : 0;
 
-let window: AppWindow;
+const windows = new Map<string, AppWindow>();
+
+function createWindow() {
+  const id = createId();
+  const window = new AppWindow();
+  return {
+    id,
+    window,
+  };
+}
+
 // This method will be called when Electron has finished
 // initialization and is ready to create browser windows.
 // Some APIs can only be used after this event occurs.
 app.on("ready", () => {
-  window = new AppWindow();
+  const { id, window } = createWindow();
+  windows.set(id, window);
+  window.setupResizeAndMoveListeners();
 });
 
 // Quit when all windows are closed, except on macOS. There, it's common
@@ -273,7 +285,10 @@ app.on("ready", () => {
 // explicitly with Cmd + Q.
 app.on("window-all-closed", () => {
   if (process.platform !== "darwin") {
-    window?.destroy();
+    windows.forEach((window) => {
+      window.destroy();
+    });
+    windows.clear();
   }
 });
 
@@ -281,7 +296,8 @@ app.on("activate", () => {
   // On OS X it's common to re-create a window in the app when the
   // dock icon is clicked and there are no other windows open.
   if (BrowserWindow.getAllWindows().length === 0) {
-    window = new AppWindow();
+    const { id, window } = createWindow();
+    windows.set(id, window);
   }
 });
 
