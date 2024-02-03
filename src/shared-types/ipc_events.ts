@@ -1,14 +1,14 @@
 export enum ControlEmittedEvents {
   SidebarReady = "sidebar-ready",
   SidebarUpdateWidth = "sidebar-update-width",
-  TabsReady = "tabs-ready",
-  TabsUpdateActiveTab = "update-active-tab",
+  Tabs_Ready = "tabs-ready",
+  Tabs_UpdateActiveTab = "tabs_update-active-tab",
+  Tabs_CloseTab = "tabs_close-tab",
 }
 
 export enum MainProcessEmittedEvents {
-  TabsSetInitialTabs = "set-initial-tabs",
-  TabsUpdateTabConfig = "update-tabs",
-  TabsUpdateActiveTabs = "update-active-tabs",
+  Tabs_UpdateTabs = "tabs_update-tabs",
+  TabsUpdateActiveTab = "update-active-tab",
   SidebarSetInitialWidth = "set-initial-sidebar-width",
   NewTabDialogToggle = "toggle-new-tab-dialog",
 }

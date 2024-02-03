@@ -13,7 +13,7 @@ export function App() {
   const [defaultSize, setDefaultSize] = React.useState<number | null>(null);
 
   useEffect(() => {
-    sendIpcMessage(ControlEmittedEvents.TabsReady);
+    sendIpcMessage(ControlEmittedEvents.SidebarReady);
   }, []);
   useIpcListener(
     MainProcessEmittedEvents.SidebarSetInitialWidth,
@@ -21,7 +21,6 @@ export function App() {
       setDefaultSize(width);
     }
   );
-  console.log(defaultSize);
 
   if (!defaultSize) return null;
 
@@ -32,7 +31,7 @@ export function App() {
         direction="horizontal"
         onLayout={(layout) => {
           const [sidebarWidth] = layout;
-          electron.ipcRenderer.send("sidebar-width-update", sidebarWidth);
+          sendIpcMessage(ControlEmittedEvents.SidebarUpdateWidth, sidebarWidth);
         }}
       >
         <Panel minSize={10} maxSize={20} defaultSize={defaultSize}>

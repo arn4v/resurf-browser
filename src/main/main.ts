@@ -79,6 +79,9 @@ class AppWindow {
     this.newTab("https://google.com", true);
     this.shortcutManager = new ShortcutManager(this.window);
     this.registerShortcuts();
+    this.setupSidebarEventListeners();
+    this.setupResizeAndMoveListeners();
+    this.setupTabEventListeners();
   }
 
   getActiveView() {
@@ -90,10 +93,65 @@ class AppWindow {
     this.shortcutManager.registerShortcut(KeyboardShortcuts.NewTab, () => {
       this.newTab("https://bing.com", true);
     });
+    this.shortcutManager.registerShortcut(KeyboardShortcuts.CloseTab, () => {});
+  }
 
-    this.shortcutManager.registerShortcut(KeyboardShortcuts.NewTab, () => {
-      this.newTab("https://bing.com", true);
-    });
+  closeTab(tabId: Tab["id"]) {
+    const tabsArray = [...this.tabs.entries()].map(([id]) => id);
+
+    if (this.activeTab === tabId && tabsArray.length > 1) {
+      const currentTabIndex = tabsArray.findIndex((id) => id === tabId);
+      if (currentTabIndex === 1 && currentTabIndex - 1 !== -1) {
+        const newActiveTabId = tabsArray[currentTabIndex - 1];
+        const newActiveView = this.tabIdToBrowserView.get(newActiveTabId);
+        if (!newActiveView) return;
+        this.activeTab = newActiveTabId;
+        this.window.addBrowserView(newActiveView);
+        newActiveView.setBounds(this.getWebviewBounds());
+      } else if (currentTabIndex === 0) {
+        const newActiveTabId = tabsArray[currentTabIndex + 1];
+        const newActiveView = this.tabIdToBrowserView.get(newActiveTabId);
+        if (!newActiveView) return;
+        this.activeTab = newActiveTabId;
+        this.window.addBrowserView(newActiveView);
+        newActiveView.setBounds(this.getWebviewBounds());
+      }
+    } else {
+      this.newTab("about:blank", true);
+    }
+
+    const browserView = this.tabIdToBrowserView.get(tabId);
+    if (browserView) this.window.removeBrowserView(browserView);
+    this.tabIdToBrowserView.delete(tabId);
+    this.tabs.delete(tabId);
+
+    this.emitUpdateTabs();
+  }
+
+  setActiveTab(tabId: Tab["id"]) {
+    if (!this.tabs.get(tabId)) return;
+    if (this.activeTab === tabId) return;
+    const activeView = this.getActiveView();
+    const newActiveView = this.tabIdToBrowserView.get(tabId);
+    if (activeView && newActiveView) {
+      this.window.removeBrowserView(activeView);
+      this.activeTab = tabId;
+      this.window.addBrowserView(newActiveView);
+      this.window.setTopBrowserView(newActiveView);
+      newActiveView.setBounds(this.getWebviewBounds());
+      this.emitUpdateTabs();
+    }
+  }
+
+  emitUpdateTabs() {
+    this.emitControlEvent(
+      MainProcessEmittedEvents.Tabs_UpdateTabs,
+      Object.fromEntries(this.tabs.entries())
+    );
+    this.emitControlEvent(
+      MainProcessEmittedEvents.TabsUpdateActiveTab,
+      this.activeTab
+    );
   }
 
   destroy() {
@@ -104,7 +162,7 @@ class AppWindow {
   newTab(url?: string, focus?: boolean): string {
     if (!url) url = "about:blank";
     const tabId = createId();
-    const tab = new BrowserView({
+    const tabView = new BrowserView({
       webPreferences: {
         nodeIntegration: false,
         devTools: true,
@@ -115,17 +173,17 @@ class AppWindow {
         autoplayPolicy: "user-gesture-required",
       },
     });
-    tab.setAutoResize({
+    tabView.setAutoResize({
       width: true,
       height: true,
       horizontal: true,
       vertical: true,
     });
-    tab.setBounds(this.getStageBounds());
-    tab.webContents.loadURL(url ?? "about:blank");
+    tabView.setBounds(this.getWebviewBounds());
+    tabView.webContents.loadURL(url ?? "about:blank");
 
     contextMenu({
-      window: tab,
+      window: tabView,
       showSelectAll: true,
       showCopyImage: true,
       showCopyImageAddress: true,
@@ -134,23 +192,33 @@ class AppWindow {
       showInspectElement: true,
     });
 
-    this.tabIdToBrowserView.set(tabId, tab);
-    this.tabs.set(tabId, {
+    const tab: Tab = {
       id: tabId,
       url,
       title: url,
-    });
+    };
+    this.tabIdToBrowserView.set(tabId, tabView);
+    this.tabs.set(tabId, tab);
     if (focus) {
       this.activeTab = tabId;
-      this.window.addBrowserView(tab);
-      this.window.setTopBrowserView(tab);
+      this.window.addBrowserView(tabView);
+      this.window.setTopBrowserView(tabView);
     }
 
-    tab.webContents.on("page-favicon-updated", (_, favicons) => {
+    tabView.webContents.on("page-favicon-updated", (_, favicons) => {
+      if (favicons[0]) {
+        this.updateTabConfig(tabId, {
+          favicon: favicons[0],
+        });
+      }
+    });
+    tabView.webContents.on("page-title-updated", (_, title) => {
       this.updateTabConfig(tabId, {
-        favicon: favicons[0],
+        title,
       });
     });
+
+    this.emitUpdateTabs();
 
     return tabId;
   }
@@ -160,16 +228,11 @@ class AppWindow {
       ...this.tabs.get(id)!,
       ...update,
     });
-    this.emitControlEvent(
-      MainProcessEmittedEvents.TabsUpdateTabConfig,
-      this.tabs.get(id)!
-    );
+    this.emitUpdateTabs();
   }
 
   emitControlEvent(channel: MainProcessEmittedEvents, ...args: any[]) {
-    this.controlView.webContents.emit("test");
-    ipcMain.emit("test");
-    this.controlView.webContents.emit(channel, ...args);
+    this.controlView.webContents.send(channel, ...args);
   }
 
   setupControlView() {
@@ -204,7 +267,7 @@ class AppWindow {
     return preferencesStore.get("sidebarWidth") || 15;
   }
 
-  getStageBounds() {
+  getWebviewBounds() {
     const winBounds = this.window.getBounds();
     return {
       width: normalizeNumber(
@@ -219,27 +282,38 @@ class AppWindow {
     };
   }
 
-  setupSidebarIPCListeners() {
-    console.log("setting up listeners");
+  setupSidebarEventListeners() {
     ipcMain.on(ControlEmittedEvents.SidebarReady, (event) => {
-      console.log("sidebar-ready");
       const storedWidth = preferencesStore.get("sidebarWidth");
       event.reply(
         MainProcessEmittedEvents.SidebarSetInitialWidth,
         storedWidth || 15
       );
     });
-    ipcMain.on(ControlEmittedEvents.TabsReady, (event) => {
-      this.emitControlEvent(
-        MainProcessEmittedEvents.TabsSetInitialTabs,
-        Object.fromEntries(this.tabs.entries())
-      );
-    });
     ipcMain.on(
       ControlEmittedEvents.SidebarUpdateWidth,
       (_, sidebarWidth: number) => {
         preferencesStore.set("sidebarWidth", sidebarWidth);
-        this.getActiveView()?.setBounds(this.getStageBounds());
+        this.getActiveView()?.setBounds(this.getWebviewBounds());
+      }
+    );
+  }
+
+  setupTabEventListeners() {
+    ipcMain.on(ControlEmittedEvents.Tabs_Ready, (event) => {
+      event.reply(
+        MainProcessEmittedEvents.Tabs_UpdateTabs,
+        Object.fromEntries(this.tabs.entries())
+      );
+      event.reply(MainProcessEmittedEvents.TabsUpdateActiveTab, this.activeTab);
+    });
+    ipcMain.on(ControlEmittedEvents.Tabs_CloseTab, (event, tabId: string) => {
+      this.closeTab(tabId);
+    });
+    ipcMain.on(
+      ControlEmittedEvents.Tabs_UpdateActiveTab,
+      (_, tabId: string) => {
+        this.setActiveTab(tabId);
       }
     );
   }
@@ -247,7 +321,7 @@ class AppWindow {
   setupResizeAndMoveListeners() {
     this.window.on("resize", () => {
       const { width, height, x, y } = this.window.getBounds();
-      this.getActiveView()?.setBounds(this.getStageBounds());
+      this.getActiveView()?.setBounds(this.getWebviewBounds());
       preferencesStore.set("windowBounds", { width, height, x, y });
     });
     this.window.on("move", () => {
@@ -277,7 +351,6 @@ function createWindow() {
 app.on("ready", () => {
   const { id, window } = createWindow();
   windows.set(id, window);
-  window.setupResizeAndMoveListeners();
 });
 
 // Quit when all windows are closed, except on macOS. There, it's common
