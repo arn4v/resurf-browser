@@ -247,6 +247,7 @@ class AppWindow {
       // This fixes the bug where previous active view is on top of controlView, causing it to show when the
       // sidebar is resized
       this.window.setTopBrowserView(this.controlView);
+      this.window.addBrowserView(newActiveView);
       this.window.setTopBrowserView(newActiveView);
       this.emitUpdateTabs();
     }
