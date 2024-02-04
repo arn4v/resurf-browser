@@ -1,17 +1,20 @@
 import type { ForgeConfig } from "@electron-forge/shared-types";
 import { MakerSquirrel } from "@electron-forge/maker-squirrel";
-import { MakerZIP } from "@electron-forge/maker-zip";
 import { VitePlugin } from "@electron-forge/plugin-vite";
 import { MakerDMG } from "@electron-forge/maker-dmg";
 
 const config: ForgeConfig = {
   packagerConfig: {
-    icon: "./images/icon.icns",
+    asar: true,
+    icon: "./assets/icon",
+    name: "Resurf Browser",
+    executableName:
+      process.platform === "linux" ? "resurf-browser" : "resurfBrowser",
   },
   rebuildConfig: {},
   makers: [
     new MakerDMG({
-      icon: "./images/icon.icns",
+      icon: "./assets/icon.icns",
       format: "ULFO",
     }),
     new MakerSquirrel({}),

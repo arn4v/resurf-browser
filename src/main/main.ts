@@ -23,8 +23,8 @@ export const Env = {
     version: app.getVersion(),
   },
   deploy: {
-    isDevelopment: process.env.NODE_ENV !== "production",
-    isProduction: process.env.NODE_ENV === "production",
+    isDevelopment: !app.isPackaged,
+    isProduction: app.isPackaged,
   },
 };
 
@@ -183,10 +183,17 @@ class AppWindow {
   setActiveTab(tabId: Tab["id"]) {
     if (!this.tabs.get(tabId)) return;
     if (this.activeTab === tabId) return;
+
     const activeView = this.getActiveView();
-    const newActiveView = this.tabIdToBrowserView.get(tabId);
-    if (activeView && newActiveView) {
+    if (activeView) {
       this.window.removeBrowserView(activeView);
+    }
+
+    const newActiveView = this.tabIdToBrowserView.get(tabId);
+    if (newActiveView) {
+      this.activeTab = tabId;
+      this.window.addBrowserView(newActiveView);
+      this.window.setTopBrowserView(newActiveView);
       this.activeTab = tabId;
       this.window.addBrowserView(newActiveView);
       this.window.setTopBrowserView(newActiveView);
@@ -254,9 +261,7 @@ class AppWindow {
     this.tabIdToBrowserView.set(tabId, tabView);
     this.tabs.set(tabId, tab);
     if (focus) {
-      this.activeTab = tabId;
-      this.window.addBrowserView(tabView);
-      this.window.setTopBrowserView(tabView);
+      this.setActiveTab(tabId);
     }
     this.emitUpdateTabs();
 
@@ -416,7 +421,8 @@ app.on("ready", () => {
   const { id, window } = createWindow();
   windows.set(id, window);
   if (Env.platform.isMac && Env.deploy.isDevelopment) {
-    app.dock.setIcon(path.join(app.getAppPath(), "images/icon.png"));
+    app.dock.setIcon(path.join(app.getAppPath(), "assets/icon.png"));
+    app.setName("Resurf Dev");
   }
 });
 
