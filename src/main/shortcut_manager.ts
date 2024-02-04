@@ -1,4 +1,4 @@
-import { BrowserWindow, globalShortcut } from "electron";
+import { globalShortcut, BrowserWindow } from "electron";
 import { KeyboardShortcuts } from "../shared-types/keyboard_shortcuts";
 
 export class ShortcutManager {

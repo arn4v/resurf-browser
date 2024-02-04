@@ -25,7 +25,7 @@ export function App() {
   if (!defaultSize) return null;
 
   return (
-    <>
+    <div className="h-full w-full">
       <NewTabDialog />
       <PanelGroup
         direction="horizontal"
@@ -46,6 +46,6 @@ export function App() {
           />
         </Panel>
       </PanelGroup>
-    </>
+    </div>
   );
 }

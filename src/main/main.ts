@@ -1,11 +1,11 @@
 import { createId } from "@paralleldrive/cuid2";
-import { app, BrowserView, BrowserWindow, ipcMain, screen } from "electron";
+import { app, BrowserView, ipcMain, screen, BrowserWindow } from "electron";
 import contextMenu from "electron-context-menu";
 import Store from "electron-store";
 import path from "path";
 import { ShortcutManager } from "./shortcut_manager";
 import { KeyboardShortcuts } from "../shared-types/keyboard_shortcuts";
-import { Tab } from "~/shared-types/tabs";
+import { Tab, TabsMap } from "~/shared-types/tabs";
 import {
   MainProcessEmittedEvents,
   ControlEmittedEvents,
@@ -38,6 +38,8 @@ const preloadPath = path.resolve(__dirname, "./preload.js");
 type StoredPreferences = {
   windowBounds: ReturnType<typeof screen.getPrimaryDisplay>["bounds"];
   sidebarWidth: number;
+  tabs: TabsMap;
+  lastActiveTab: string | null;
 };
 const preferencesStore = new Store<StoredPreferences>({});
 
@@ -55,11 +57,27 @@ class AppWindow {
       y: 0,
       ...(Env.platform.isMac
         ? {
-            titleBarStyle: "hiddenInset",
+            titleBarStyle: "hidden",
             trafficLightPosition: { x: 16, y: 8 },
-            titleBarOverlay: {
-              height: 30,
-            },
+            frame: false,
+            // transparent: true,
+            // show: false,
+            // backgroundColor: "#00000000",
+
+            // backgroundColor: "hsla(0, 0%, 0%, 0.5)", // transparent hexadecimal or anything with transparency,
+            // vibrancy: "under-window", // in my case...
+            // visualEffectState: "followWindow",
+
+            // frame: false,
+            // transparent: true,
+            // vibrancy: "under-window",
+            // vibrancy: "sidebar",
+            // backgroundColor: "#00000000", // transparent hexadecimal or anything with transparency,
+            // vibrancy: "window", // in my case...
+            // visualEffectState: "active",
+            // titleBarOverlay: {
+            //   height: 30,
+            // },
           }
         : {}),
       webPreferences: {
@@ -75,14 +93,42 @@ class AppWindow {
         // contextIsolation: tru,
       },
     });
-
     this.setupControlView();
-    this.newTab("https://google.com", true);
+
     this.shortcutManager = new ShortcutManager(this.window);
     this.registerShortcuts();
     this.setupSidebarEventListeners();
     this.setupResizeAndMoveListeners();
     this.setupTabEventListeners();
+
+    this.restoreTabsOrCreateBlank();
+
+    this.window.on("blur", () => {
+      this.persistTabs();
+    });
+    this.window.on("close", () => {
+      this.persistTabs();
+    });
+  }
+
+  restoreTabsOrCreateBlank() {
+    const tabs = new Map<string, Tab>(
+      Object.entries(preferencesStore.get("tabs"))
+    );
+    if (tabs.size > 0) {
+      this.tabs = tabs;
+
+      const lastActiveTab = preferencesStore.get("lastActiveTab");
+      if (lastActiveTab) {
+        this.activeTab = lastActiveTab;
+        this.setActiveTab(lastActiveTab, true);
+      } else {
+        this.setActiveTab(tabs.get([...tabs.keys()][0])!.id, true);
+      }
+      this.emitUpdateTabs();
+    } else {
+      this.newTab("https://google.com", true);
+    }
   }
 
   getActiveView() {
@@ -180,27 +226,36 @@ class AppWindow {
     }
   }
 
-  setActiveTab(tabId: Tab["id"]) {
+  setActiveTab(tabId: Tab["id"], noSanityChecks = false) {
     if (!this.tabs.get(tabId)) return;
-    if (this.activeTab === tabId) return;
+    if (!noSanityChecks && this.activeTab === tabId) return;
 
-    const activeView = this.getActiveView();
-    if (activeView) {
-      this.window.removeBrowserView(activeView);
+    // const activeView = this.getActiveView();
+
+    let newActiveTab = this.tabs.get(tabId);
+    let newActiveView = this.tabIdToBrowserView.get(tabId);
+    if (newActiveTab && !newActiveView) {
+      newActiveView = this.createWebview(newActiveTab.id, newActiveTab.url);
+      this.tabIdToBrowserView.set(newActiveTab.id, newActiveView);
     }
 
-    const newActiveView = this.tabIdToBrowserView.get(tabId);
     if (newActiveView) {
       this.activeTab = tabId;
-      this.window.addBrowserView(newActiveView);
-      this.window.setTopBrowserView(newActiveView);
-      this.activeTab = tabId;
-      this.window.addBrowserView(newActiveView);
-      this.window.setTopBrowserView(newActiveView);
       newActiveView.setBounds(this.getWebviewBounds());
       newActiveView.webContents.focus();
+      // Set controlView as top view first, so that controlView zIndex = 0, newActiveView zIndex = 1
+      // This fixes the bug where previous active view is on top of controlView, causing it to show when the
+      // sidebar is resized
+      this.window.setTopBrowserView(this.controlView);
+      this.window.setTopBrowserView(newActiveView);
       this.emitUpdateTabs();
     }
+
+    // Don't removeBrowserView, because it causes a glitchy flash when added back again
+    // Keep as many browser views in memory as possible
+    // if (activeView) {
+    //   this.window.removeBrowserView(activeView);
+    // }
   }
 
   emitUpdateTabs() {
@@ -214,6 +269,11 @@ class AppWindow {
     );
   }
 
+  persistTabs() {
+    preferencesStore.set("tabs", Object.fromEntries(this.tabs.entries()));
+    preferencesStore.set("lastActiveTab", this.activeTab);
+  }
+
   destroy() {
     this.window.destroy();
     this.shortcutManager.unregisterShortcuts();
@@ -222,6 +282,22 @@ class AppWindow {
   newTab(url?: string, focus?: boolean, parent?: string) {
     if (!url) url = "about:blank";
     const tabId = createId();
+    const tab: Tab = {
+      id: tabId,
+      url,
+      title: url,
+      parent,
+    };
+    const tabView = this.createWebview(tabId, url);
+    this.tabIdToBrowserView.set(tabId, tabView);
+    this.tabs.set(tabId, tab);
+    if (focus) {
+      this.setActiveTab(tabId);
+    }
+    this.emitUpdateTabs();
+  }
+
+  createWebview(tabId: string, url: string) {
     const tabView = new BrowserView({
       webPreferences: {
         nodeIntegration: false,
@@ -252,19 +328,6 @@ class AppWindow {
       showInspectElement: true,
     });
 
-    const tab: Tab = {
-      id: tabId,
-      url,
-      title: url,
-      parent,
-    };
-    this.tabIdToBrowserView.set(tabId, tabView);
-    this.tabs.set(tabId, tab);
-    if (focus) {
-      this.setActiveTab(tabId);
-    }
-    this.emitUpdateTabs();
-
     tabView.webContents.loadURL(url ?? "about:blank");
     tabView.webContents.on("page-favicon-updated", (_, favicons) => {
       if (favicons[0]) {
@@ -280,7 +343,7 @@ class AppWindow {
     });
     tabView.webContents.setWindowOpenHandler(({ disposition, url }) => {
       if (disposition === "background-tab") {
-        this.newTab(url, false, tab.id);
+        this.newTab(url, false, tabId);
         return {
           action: "deny",
         };
@@ -290,6 +353,8 @@ class AppWindow {
         action: "allow",
       };
     });
+
+    return tabView;
   }
 
   updateTabConfig(id: Tab["id"], update: Partial<Tab>) {
@@ -306,12 +371,14 @@ class AppWindow {
 
   setupControlView() {
     const controlView = this.controlView;
+    controlView.setBackgroundColor("hsla(0, 0%, 100%, 0.0)");
     controlView.setBounds({
       ...this.window.getBounds(),
       y: 0,
     });
     controlView.setAutoResize({ width: true, height: true });
     // and load the index.html of the app.
+
     if (MAIN_WINDOW_VITE_DEV_SERVER_URL) {
       controlView.webContents.loadURL(MAIN_WINDOW_VITE_DEV_SERVER_URL);
     } else {
@@ -364,6 +431,9 @@ class AppWindow {
       (_, sidebarWidth: number) => {
         preferencesStore.set("sidebarWidth", sidebarWidth);
         this.getActiveView()?.setBounds(this.getWebviewBounds());
+        for (const key in this.tabIdToBrowserView.keys()) {
+          this.tabIdToBrowserView.get(key)?.setBounds(this.getWebviewBounds());
+        }
       }
     );
   }

@@ -2,7 +2,6 @@ import {
   ChevronDownIcon,
   ChevronUpIcon,
   DotIcon,
-  DotSquareIcon,
   GlobeIcon,
   Trash2Icon,
 } from "lucide-react";
@@ -39,7 +38,13 @@ export function Sidebar() {
   );
 
   return (
-    <div className="h-full w-full shadow-inner bg-gray-200 pt-8">
+    <div className="h-full w-full shadow-inner bg-neutral-800 text-white">
+      <div
+        className="h-8 w-full"
+        style={{
+          "-webkit-app-region": "drag",
+        }}
+      />
       <Tabs tabs={tabs || {}} activeTab={activeTab} />
     </div>
   );
@@ -58,7 +63,7 @@ function Tabs({
   }, [tabsMap]);
 
   return (
-    <ul className="pl-3 pr-1.5 w-full flex flex-col gap-1">
+    <ul className="pl-3 pr-1.5 w-full flex flex-col gap-1 ">
       {topLevelTabs.map((parent) => {
         return <TabItem tab={parent} tabs={tabs} activeTab={activeTab} />;
       })}
@@ -91,8 +96,8 @@ function TabItem({
         className={cn(
           "flex items-center justify-between w-full rounded-lg group select-none gap-2",
           tab.id === activeTab
-            ? "bg-gray-300 cursor-default"
-            : "transition hover:bg-gray-300"
+            ? "bg-neutral-700 cursor-default"
+            : "transition hover:bg-neutral-700"
         )}
         onClick={() => {
           sendIpcMessage(ControlEmittedEvents.Tabs_UpdateActiveTab, tab.id);
@@ -129,7 +134,7 @@ function TabItem({
                 className="w-4 h-4"
               />
             ) : (
-              <GlobeIcon className="h-5 w-5" />
+              <GlobeIcon className="h-4 w-4" />
             )}
             <p className="truncate max-w-full"> {tab.title} </p>
           </span>
