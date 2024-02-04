@@ -1,18 +1,20 @@
 import type { ForgeConfig } from "@electron-forge/shared-types";
 import { MakerSquirrel } from "@electron-forge/maker-squirrel";
 import { MakerZIP } from "@electron-forge/maker-zip";
-import { MakerDeb } from "@electron-forge/maker-deb";
-import { MakerRpm } from "@electron-forge/maker-rpm";
 import { VitePlugin } from "@electron-forge/plugin-vite";
+import { MakerDMG } from "@electron-forge/maker-dmg";
 
 const config: ForgeConfig = {
-  packagerConfig: {},
+  packagerConfig: {
+    icon: "./images/icon.icns",
+  },
   rebuildConfig: {},
   makers: [
+    new MakerDMG({
+      icon: "./images/icon.icns",
+      format: "ULFO",
+    }),
     new MakerSquirrel({}),
-    new MakerZIP({}, ["darwin"]),
-    new MakerRpm({}),
-    new MakerDeb({}),
   ],
   plugins: [
     new VitePlugin({

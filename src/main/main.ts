@@ -75,6 +75,7 @@ class AppWindow {
         // contextIsolation: tru,
       },
     });
+
     this.setupControlView();
     this.newTab("https://google.com", true);
     this.shortcutManager = new ShortcutManager(this.window);
@@ -93,39 +94,90 @@ class AppWindow {
     this.shortcutManager.registerShortcut(KeyboardShortcuts.NewTab, () => {
       this.newTab("https://bing.com", true);
     });
-    this.shortcutManager.registerShortcut(KeyboardShortcuts.CloseTab, () => {});
+    this.shortcutManager.registerShortcut(KeyboardShortcuts.CloseTab, () => {
+      if (this.activeTab) this.closeTab(this.activeTab);
+    });
+    this.shortcutManager.registerShortcut(KeyboardShortcuts.ReloadPage, () => {
+      this.getActiveView()?.webContents.reload();
+    });
+    this.shortcutManager.registerShortcut(KeyboardShortcuts.NextTab, () => {
+      this.switchTab(+1);
+    });
+    this.shortcutManager.registerShortcut(KeyboardShortcuts.PreviousTab, () => {
+      this.switchTab(-1);
+    });
+    this.shortcutManager.registerShortcut(KeyboardShortcuts.HistoryBack, () => {
+      this.getActiveView()?.webContents.goBack();
+    });
+    this.shortcutManager.registerShortcut(
+      KeyboardShortcuts.HistoryForward,
+      () => {
+        this.getActiveView()?.webContents.goForward();
+      }
+    );
+  }
+
+  switchTab(direction: number) {
+    if (!this.activeTab) return;
+    const tabsArray = Array.from(this.tabs.keys());
+    const currentTabIndex = tabsArray.indexOf(this.activeTab);
+    if (currentTabIndex === -1) return;
+
+    // Calculate the new active tab index, wrapping around if necessary
+    let newActiveTabIndex =
+      (currentTabIndex + direction + tabsArray.length) % tabsArray.length;
+
+    // Get the new active tab ID
+    const newActiveTabId = tabsArray[newActiveTabIndex];
+
+    // Set and show the new active tab
+    this.setActiveTab(newActiveTabId);
   }
 
   closeTab(tabId: Tab["id"]) {
-    const tabsArray = [...this.tabs.entries()].map(([id]) => id);
+    // Get a sorted array of the tab IDs
+    const tabsArray = Array.from(this.tabs.keys());
 
-    if (this.activeTab === tabId && tabsArray.length > 1) {
-      const currentTabIndex = tabsArray.findIndex((id) => id === tabId);
-      if (currentTabIndex === 1 && currentTabIndex - 1 !== -1) {
-        const newActiveTabId = tabsArray[currentTabIndex - 1];
-        const newActiveView = this.tabIdToBrowserView.get(newActiveTabId);
-        if (!newActiveView) return;
-        this.activeTab = newActiveTabId;
-        this.window.addBrowserView(newActiveView);
-        newActiveView.setBounds(this.getWebviewBounds());
-      } else if (currentTabIndex === 0) {
-        const newActiveTabId = tabsArray[currentTabIndex + 1];
-        const newActiveView = this.tabIdToBrowserView.get(newActiveTabId);
-        if (!newActiveView) return;
-        this.activeTab = newActiveTabId;
-        this.window.addBrowserView(newActiveView);
-        newActiveView.setBounds(this.getWebviewBounds());
+    // Find the index of the tab to be closed
+    const closingTabIndex = tabsArray.indexOf(tabId);
+
+    // Only proceed if the tab is found
+    if (closingTabIndex !== -1) {
+      // Determine the new active tab if the closing tab is the current active tab
+      if (this.activeTab === tabId) {
+        // Calculate the new active tab index
+        let newActiveTabIndex = closingTabIndex === 0 ? 1 : closingTabIndex - 1;
+
+        // Ensure the new index is within the bounds of the tabs array
+        newActiveTabIndex = Math.min(
+          Math.max(newActiveTabIndex, 0),
+          tabsArray.length - 1
+        );
+
+        // Get the new active tab ID
+        const newActiveTabId = tabsArray[newActiveTabIndex];
+
+        // Set and show the new active tab
+        this.setActiveTab(newActiveTabId);
       }
-    } else {
-      this.newTab("about:blank", true);
+
+      // Remove the closing tab from the data structures and UI
+      const browserView = this.tabIdToBrowserView.get(tabId);
+      if (browserView) {
+        this.window.removeBrowserView(browserView);
+        browserView.webContents.close(); // Ensure the BrowserView is properly cleaned up
+      }
+      this.tabIdToBrowserView.delete(tabId);
+      this.tabs.delete(tabId);
+
+      // Update the UI to reflect the new state of the tabs
+      this.emitUpdateTabs();
+
+      const newActiveView = this.tabIdToBrowserView.get(tabId);
+      if (newActiveView) {
+        newActiveView.webContents.focus(); // This will focus the BrowserView's contents
+      }
     }
-
-    const browserView = this.tabIdToBrowserView.get(tabId);
-    if (browserView) this.window.removeBrowserView(browserView);
-    this.tabIdToBrowserView.delete(tabId);
-    this.tabs.delete(tabId);
-
-    this.emitUpdateTabs();
   }
 
   setActiveTab(tabId: Tab["id"]) {
@@ -139,6 +191,7 @@ class AppWindow {
       this.window.addBrowserView(newActiveView);
       this.window.setTopBrowserView(newActiveView);
       newActiveView.setBounds(this.getWebviewBounds());
+      newActiveView.webContents.focus();
       this.emitUpdateTabs();
     }
   }
@@ -159,7 +212,7 @@ class AppWindow {
     this.shortcutManager.unregisterShortcuts();
   }
 
-  newTab(url?: string, focus?: boolean): string {
+  newTab(url?: string, focus?: boolean, parent?: string) {
     if (!url) url = "about:blank";
     const tabId = createId();
     const tabView = new BrowserView({
@@ -173,6 +226,7 @@ class AppWindow {
         autoplayPolicy: "user-gesture-required",
       },
     });
+
     tabView.setAutoResize({
       width: true,
       height: true,
@@ -180,7 +234,6 @@ class AppWindow {
       vertical: true,
     });
     tabView.setBounds(this.getWebviewBounds());
-    tabView.webContents.loadURL(url ?? "about:blank");
 
     contextMenu({
       window: tabView,
@@ -196,6 +249,7 @@ class AppWindow {
       id: tabId,
       url,
       title: url,
+      parent,
     };
     this.tabIdToBrowserView.set(tabId, tabView);
     this.tabs.set(tabId, tab);
@@ -204,7 +258,9 @@ class AppWindow {
       this.window.addBrowserView(tabView);
       this.window.setTopBrowserView(tabView);
     }
+    this.emitUpdateTabs();
 
+    tabView.webContents.loadURL(url ?? "about:blank");
     tabView.webContents.on("page-favicon-updated", (_, favicons) => {
       if (favicons[0]) {
         this.updateTabConfig(tabId, {
@@ -217,10 +273,18 @@ class AppWindow {
         title,
       });
     });
+    tabView.webContents.setWindowOpenHandler(({ disposition, url }) => {
+      if (disposition === "background-tab") {
+        this.newTab(url, false, tab.id);
+        return {
+          action: "deny",
+        };
+      }
 
-    this.emitUpdateTabs();
-
-    return tabId;
+      return {
+        action: "allow",
+      };
+    });
   }
 
   updateTabConfig(id: Tab["id"], update: Partial<Tab>) {
@@ -351,6 +415,9 @@ function createWindow() {
 app.on("ready", () => {
   const { id, window } = createWindow();
   windows.set(id, window);
+  if (Env.platform.isMac && Env.deploy.isDevelopment) {
+    app.dock.setIcon(path.join(app.getAppPath(), "images/icon.png"));
+  }
 });
 
 // Quit when all windows are closed, except on macOS. There, it's common
