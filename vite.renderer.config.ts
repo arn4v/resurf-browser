@@ -7,13 +7,13 @@ const base = path.resolve(__dirname, 'src/renderer')
 
 // https://vitejs.dev/config
 export default defineConfig({
-	plugins: [react(), tsconfigPaths()],
-	build: {
-		rollupOptions: {
-			input: {
-				sidebar: path.resolve(base, 'sidebar/index.html'),
-				find: path.resolve(base, 'find/index.html'),
-			},
-		},
-	},
+  plugins: [react(), tsconfigPaths()],
+  build: {
+    rollupOptions: {
+      input: {
+        sidebar: path.resolve(base, 'sidebar/index.html'),
+        find: path.resolve(base, 'find/index.html'),
+      },
+    },
+  },
 })
