@@ -1,23 +1,23 @@
 {
-  "compilerOptions": {
-    "target": "ESNext",
-    "module": "commonjs",
-    "allowJs": true,
-    "skipLibCheck": true,
-    "esModuleInterop": true,
-    "noImplicitAny": true,
-    "sourceMap": true,
-    "strict": true,
-    "jsx": "react-jsx",
-    "outDir": "dist",
-    "moduleResolution": "node",
-    "resolveJsonModule": true,
-    "forceConsistentCasingInFileNames": true,
-    "baseUrl": ".",
-    "paths": {
-      "~/*": ["src/renderer/*"],
-      "~/shared-types/*": ["src/shared-types/*"]
-    }
-  },
-  "include": ["src", "forge.config.ts"]
+	"compilerOptions": {
+		"target": "ESNext",
+		"module": "commonjs",
+		"allowJs": true,
+		"skipLibCheck": true,
+		"esModuleInterop": true,
+		"noImplicitAny": true,
+		"sourceMap": true,
+		"strict": true,
+		"jsx": "react-jsx",
+		"outDir": "dist",
+		"moduleResolution": "node",
+		"resolveJsonModule": true,
+		"forceConsistentCasingInFileNames": true,
+		"baseUrl": ".",
+		"paths": {
+			"~/*": ["src/renderer/*"],
+			"~/shared-types/*": ["src/shared-types/*"]
+		}
+	},
+	"include": ["src", "forge.config.ts"]
 }

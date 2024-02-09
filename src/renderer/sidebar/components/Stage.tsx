@@ -1,3 +1,3 @@
 export function Stage() {
-  return null;
+	return null
 }
