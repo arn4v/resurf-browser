@@ -8,13 +8,7 @@ import {
   FindInPageEvents,
   MainProcessEmittedEvents,
 } from 'src/shared/ipc_events'
-import {
-  FIND_IN_PAGE_INITIAL_STATE,
-  Tab,
-  TabState,
-  TabStateInterface,
-  TabsMap,
-} from 'src/shared/tabs'
+import { Tab, TabsMap } from 'src/shared/tabs'
 import { FIND_IN_PAGE_HEIGHT, FIND_IN_PAGE_WIDTH } from '~/shared/constants'
 import { KeyboardShortcuts } from '../shared/keyboard_shortcuts'
 import { ShortcutManager } from './shortcut_manager'
@@ -63,7 +57,6 @@ class AppWindow {
   sidebarView: BrowserView
   tabIdToBrowserView = new Map<string, BrowserView>()
   tabs = new Map<string, Tab>()
-  tabState = new Map<string, TabState>()
   activeTab: string | null = null
   shortcutManager: ShortcutManager
 
@@ -154,6 +147,103 @@ class AppWindow {
     })
   }
 
+  destroy() {
+    this.window.destroy()
+    this.shortcutManager.unregisterShortcuts()
+  }
+
+  /*******************
+   * WEBVIEW HELPERS *
+   *******************/
+  getWindowBounds() {
+    const windowBounds = preferencesStore.get('windowBounds')
+    const bounds = windowBounds ?? screen.getPrimaryDisplay().workAreaSize
+    return bounds
+  }
+
+  getWebviewBounds() {
+    const winBounds = this.window.getBounds()
+    return {
+      width: normalizeNumber(
+        winBounds.width - winBounds.width * (this.getSidebarWidthOrDefault() / 100),
+      ),
+      height: winBounds.height,
+      x: normalizeNumber(winBounds.width * (this.getSidebarWidthOrDefault() / 100)),
+      y: 0,
+    }
+  }
+
+  createWebview(tabId: string, url: string) {
+    const tabView = new BrowserView({
+      webPreferences: {
+        nodeIntegration: false,
+        devTools: true,
+        contextIsolation: true,
+        sandbox: true,
+        scrollBounce: true,
+        safeDialogs: true,
+        autoplayPolicy: 'user-gesture-required',
+      },
+    })
+
+    tabView.setAutoResize({
+      width: true,
+      height: true,
+      horizontal: true,
+      vertical: true,
+    })
+    tabView.setBounds(this.getWebviewBounds())
+
+    contextMenu({
+      window: tabView,
+      showSelectAll: true,
+      showCopyImage: true,
+      showCopyImageAddress: true,
+      showSaveImage: true,
+      showSaveLinkAs: true,
+      showInspectElement: true,
+    })
+
+    tabView.webContents.loadURL(url ?? 'about:blank')
+    tabView.webContents.on('page-favicon-updated', (_, favicons) => {
+      if (favicons[0]) {
+        this.updateTabConfig(tabId, {
+          favicon: favicons[0],
+        })
+      }
+    })
+    tabView.webContents.on('page-title-updated', (_, title) => {
+      this.updateTabConfig(tabId, {
+        title,
+      })
+    })
+    tabView.webContents.setWindowOpenHandler(({ disposition, url }) => {
+      if (disposition === 'background-tab') {
+        this.newTab(url, false, tabId)
+        return {
+          action: 'deny',
+        }
+      }
+
+      return {
+        action: 'allow',
+      }
+    })
+
+    return tabView
+  }
+
+  loadInternalViewURLOrFile(view: BrowserView, urlOrFilePath: string) {
+    if (MAIN_WINDOW_VITE_DEV_SERVER_URL) {
+      view.webContents.loadURL(urlOrFilePath)
+    } else {
+      view.webContents.loadFile(urlOrFilePath)
+    }
+  }
+
+  /********
+   * TABS *
+   ********/
   switchTab(direction: number) {
     if (!this.activeTab) return
     const tabsArray = Array.from(this.tabs.keys())
@@ -256,21 +346,23 @@ class AppWindow {
   }
 
   emitUpdateTabs() {
-    this.emitControlEvent(
+    this.emitSidebarEvent(
       MainProcessEmittedEvents.Tabs_UpdateTabs,
       Object.fromEntries(this.tabs.entries()),
     )
-    this.emitControlEvent(MainProcessEmittedEvents.TabsUpdateActiveTab, this.activeTab)
+    this.emitSidebarEvent(MainProcessEmittedEvents.TabsUpdateActiveTab, this.activeTab)
   }
 
   persistTabs() {
     preferencesStore.set('tabs', Object.fromEntries(this.tabs.entries()))
     preferencesStore.set('lastActiveTab', this.activeTab)
   }
-
-  destroy() {
-    this.window.destroy()
-    this.shortcutManager.unregisterShortcuts()
+  updateTabConfig(id: Tab['id'], update: Partial<Tab>) {
+    this.tabs.set(id, {
+      ...this.tabs.get(id)!,
+      ...update,
+    })
+    this.emitUpdateTabs()
   }
 
   newTab(url?: string, focus?: boolean, parent?: string) {
@@ -282,12 +374,8 @@ class AppWindow {
       title: url,
       parent,
     }
-    const tabSessionState: TabStateInterface = {
-      findInPage: FIND_IN_PAGE_INITIAL_STATE,
-    }
     const tabView = this.createWebview(tabId, url)
     this.tabIdToBrowserView.set(tabId, tabView)
-    this.tabState.set(tabId, tabSessionState)
     this.tabs.set(tabId, tab)
     if (focus) {
       this.setActiveTab(tabId)
@@ -295,152 +383,7 @@ class AppWindow {
     this.emitUpdateTabs()
   }
 
-  createWebview(tabId: string, url: string) {
-    const tabView = new BrowserView({
-      webPreferences: {
-        nodeIntegration: false,
-        devTools: true,
-        contextIsolation: true,
-        sandbox: true,
-        scrollBounce: true,
-        safeDialogs: true,
-        autoplayPolicy: 'user-gesture-required',
-      },
-    })
-
-    tabView.setAutoResize({
-      width: true,
-      height: true,
-      horizontal: true,
-      vertical: true,
-    })
-    tabView.setBounds(this.getWebviewBounds())
-
-    contextMenu({
-      window: tabView,
-      showSelectAll: true,
-      showCopyImage: true,
-      showCopyImageAddress: true,
-      showSaveImage: true,
-      showSaveLinkAs: true,
-      showInspectElement: true,
-    })
-
-    tabView.webContents.loadURL(url ?? 'about:blank')
-    tabView.webContents.on('page-favicon-updated', (_, favicons) => {
-      if (favicons[0]) {
-        this.updateTabConfig(tabId, {
-          favicon: favicons[0],
-        })
-      }
-    })
-    tabView.webContents.on('page-title-updated', (_, title) => {
-      this.updateTabConfig(tabId, {
-        title,
-      })
-    })
-    tabView.webContents.setWindowOpenHandler(({ disposition, url }) => {
-      if (disposition === 'background-tab') {
-        this.newTab(url, false, tabId)
-        return {
-          action: 'deny',
-        }
-      }
-
-      return {
-        action: 'allow',
-      }
-    })
-
-    return tabView
-  }
-
-  updateTabConfig(id: Tab['id'], update: Partial<Tab>) {
-    this.tabs.set(id, {
-      ...this.tabs.get(id)!,
-      ...update,
-    })
-    this.emitUpdateTabs()
-  }
-
-  emitControlEvent(channel: MainProcessEmittedEvents, ...args: any[]) {
-    this.sidebarView.webContents.send(channel, ...args)
-  }
-
-  setupSidebarView() {
-    const controlView = this.sidebarView
-    controlView.setBackgroundColor('hsla(0, 0%, 100%, 0.0)')
-    controlView.setBounds({
-      ...this.window.getBounds(),
-      y: 0,
-    })
-    controlView.setAutoResize({ width: true, height: true })
-    // and load the index.html of the app.
-
-    this.loadInternalViewURLOrFile(controlView, getInternalViewPath('sidebar'))
-    if (Env.deploy.isDevelopment) {
-      controlView.webContents.openDevTools()
-    }
-    this.window.addBrowserView(controlView)
-    this.window.setTopBrowserView(controlView)
-  }
-
-  loadInternalViewURLOrFile(view: BrowserView, urlOrFilePath: string) {
-    if (MAIN_WINDOW_VITE_DEV_SERVER_URL) {
-      view.webContents.loadURL(urlOrFilePath)
-    } else {
-      view.webContents.loadFile(urlOrFilePath)
-    }
-  }
-
-  getWindowBounds() {
-    const windowBounds = preferencesStore.get('windowBounds')
-    const bounds = windowBounds ?? screen.getPrimaryDisplay().workAreaSize
-    return bounds
-  }
-
-  getSidebarWidthOrDefault() {
-    return preferencesStore.get('sidebarWidth') || 15
-  }
-
-  getWebviewBounds() {
-    const winBounds = this.window.getBounds()
-    return {
-      width: normalizeNumber(
-        winBounds.width - winBounds.width * (this.getSidebarWidthOrDefault() / 100),
-      ),
-      height: winBounds.height,
-      x: normalizeNumber(winBounds.width * (this.getSidebarWidthOrDefault() / 100)),
-      y: 0,
-    }
-  }
-
-  setupResizeAndMoveListeners() {
-    this.window.on('resize', () => {
-      const { width, height, x, y } = this.window.getBounds()
-      this.getActiveView()?.setBounds(this.getWebviewBounds())
-      preferencesStore.set('windowBounds', { width, height, x, y })
-    })
-    this.window.on('move', () => {
-      const { width, height, x, y } = this.window.getBounds()
-      preferencesStore.set('windowBounds', { width, height, x, y })
-    })
-  }
-
-  setupIpcHandlers() {
-    // Sidebar
-    ipcMain.on(ControlEmittedEvents.SidebarReady, (event) => {
-      const storedWidth = preferencesStore.get('sidebarWidth')
-      event.reply(MainProcessEmittedEvents.SidebarSetInitialWidth, storedWidth || 15)
-    })
-    ipcMain.on(ControlEmittedEvents.SidebarUpdateWidth, (_, sidebarWidth: number) => {
-      preferencesStore.set('sidebarWidth', sidebarWidth)
-      this.getActiveView()?.setBounds(this.getWebviewBounds())
-      for (const key in this.tabIdToBrowserView.keys()) {
-        this.tabIdToBrowserView.get(key)?.setBounds(this.getWebviewBounds())
-      }
-    })
-
+  setupTabHandlers() {
     // Tabs
     ipcMain.on(ControlEmittedEvents.Tabs_Ready, (event) => {
       event.reply(MainProcessEmittedEvents.Tabs_UpdateTabs, Object.fromEntries(this.tabs.entries()))
@@ -452,15 +395,13 @@ class AppWindow {
     ipcMain.on(ControlEmittedEvents.Tabs_UpdateActiveTab, (_, tabId: string) => {
       this.setActiveTab(tabId)
     })
-
-    // Find in page
-    ipcMain.handle(FindInPageEvents.Hide, () => {
-      if (!this.activeTab) return
-      this.disableFindInPageForTab(this.activeTab)
-    })
   }
 
+  /****************
+   * FIND IN PAGE *
+   ****************/
   tabToFindInPageView = new Map<string, BrowserView>()
+
   showFindInPageForTab(tabId: string) {
     const findInPageView = new BrowserView({
       webPreferences: {
@@ -482,12 +423,14 @@ class AppWindow {
     findInPageView.webContents.focus()
     this.tabToFindInPageView.set(tabId, findInPageView)
   }
+
   disableFindInPageForTab(tabId: string) {
     const view = this.tabToFindInPageView.get(tabId)
     if (!view) return
     this.window.removeBrowserView(view)
     this.tabToFindInPageView.delete(tabId)
   }
+
   toggleFindInPageForActiveTab() {
     if (!this.activeTab) return
     const view = this.tabToFindInPageView.get(this.activeTab)
@@ -496,6 +439,77 @@ class AppWindow {
     } else {
       this.disableFindInPageForTab(this.activeTab)
     }
+  }
+
+  setupFindInPageHandlers() {
+    // Find in page
+    ipcMain.handle(FindInPageEvents.Hide, () => {
+      if (!this.activeTab) return
+      this.disableFindInPageForTab(this.activeTab)
+    })
+  }
+
+  /***********
+   * SIDEBAR *
+   ***********/
+  emitSidebarEvent(channel: MainProcessEmittedEvents, ...args: any[]) {
+    this.sidebarView.webContents.send(channel, ...args)
+  }
+
+  setupSidebarView() {
+    const controlView = this.sidebarView
+    controlView.setBackgroundColor('hsla(0, 0%, 100%, 0.0)')
+    controlView.setBounds({
+      ...this.window.getBounds(),
+      y: 0,
+    })
+    controlView.setAutoResize({ width: true, height: true })
+    // and load the index.html of the app.
+
+    this.loadInternalViewURLOrFile(controlView, getInternalViewPath('sidebar'))
+    if (Env.deploy.isDevelopment) {
+      controlView.webContents.openDevTools()
+    }
+    this.window.addBrowserView(controlView)
+    this.window.setTopBrowserView(controlView)
+  }
+
+  getSidebarWidthOrDefault() {
+    return preferencesStore.get('sidebarWidth') || 15
+  }
+
+  setupSidebarHandlers() {
+    // Sidebar
+    ipcMain.on(ControlEmittedEvents.SidebarReady, (event) => {
+      const storedWidth = preferencesStore.get('sidebarWidth')
+      event.reply(MainProcessEmittedEvents.SidebarSetInitialWidth, storedWidth || 15)
+    })
+    ipcMain.on(ControlEmittedEvents.SidebarUpdateWidth, (_, sidebarWidth: number) => {
+      preferencesStore.set('sidebarWidth', sidebarWidth)
+      this.getActiveView()?.setBounds(this.getWebviewBounds())
+      for (const key in this.tabIdToBrowserView.keys()) {
+        this.tabIdToBrowserView.get(key)?.setBounds(this.getWebviewBounds())
+      }
+    })
+  }
+
+  /*******************
+   * PUBSUB HANDLERS *
+   *******************/
+  setupResizeAndMoveListeners() {
+    this.window.on('resize', () => {
+      const { width, height, x, y } = this.window.getBounds()
+      this.getActiveView()?.setBounds(this.getWebviewBounds())
+      preferencesStore.set('windowBounds', { width, height, x, y })
+    })
+    this.window.on('move', () => {
+      const { width, height, x, y } = this.window.getBounds()
+      preferencesStore.set('windowBounds', { width, height, x, y })
+    })
+  }
+  setupIpcHandlers() {
+    this.setupSidebarHandlers()
+    this.setupTabHandlers()
   }
 }
 

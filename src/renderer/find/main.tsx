@@ -36,16 +36,6 @@ function App() {
     }
   })
 
-  // useIpcListener(
-  //   MainProcessEmittedEvents.FindInPage_SetInitial,
-  //   (_, state: TabState['findInPage']) => {
-  //     setState({ cursor: state.results_cursor, query: state.query, total: state.results_total })
-  //   },
-  // )
-  // useIpcListener(MainProcessEmittedEvents.FindInPage_Update, (_, state: TabState['findInPage']) => {
-  //   setState({ cursor: state.results_cursor, query: state.query, total: state.results_total })
-  // })
-
   return (
     <div className='h-full w-full rounded-lg bg-zinc-900 px-3 py-2 flex items-center justify-between overflow-hidden'>
       <label className='flex items-center gap-2 text-white h-full grow'>
