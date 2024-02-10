@@ -47,23 +47,7 @@ function App() {
   // })
 
   return (
-    <motion.div
-      className='h-full w-full rounded-lg bg-zinc-900 px-3 py-2 flex items-center justify-between overflow-hidden'
-      animate={controls}
-      initial='hidden'
-      transition={{
-        ease: 'easeInOut',
-        duration: 0.15,
-      }}
-      variants={{
-        hidden: {
-          y: -100,
-        },
-        open: {
-          y: 0,
-        },
-      }}
-    >
+    <div className='h-full w-full rounded-lg bg-zinc-900 px-3 py-2 flex items-center justify-between overflow-hidden'>
       <label className='flex items-center gap-2 text-white h-full grow'>
         <SearchIcon className='h-4 w-4' />
         <input
@@ -90,7 +74,7 @@ function App() {
           <span className='sr-only'>Close find in page</span>
         </button>
       </div>
-    </motion.div>
+    </div>
   )
 }
 

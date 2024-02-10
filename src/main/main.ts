@@ -150,7 +150,7 @@ class AppWindow {
       this.getActiveView()?.webContents.goForward()
     })
     this.shortcutManager.registerShortcut(KeyboardShortcuts.FindInPage, () => {
-      this.toggleFindInPage()
+      this.toggleFindInPageForActiveTab()
     })
   }
 
@@ -214,12 +214,12 @@ class AppWindow {
   }
 
   setActiveTab(tabId: Tab['id'], noSanityChecks = false) {
-    if (!this.tabs.get(tabId)) return
+    const newActiveTab = this.tabs.get(tabId)
+    if (!newActiveTab) return
     if (!noSanityChecks && this.activeTab === tabId) return
     const currentActiveTab = this.activeTab as string
     // const activeView = this.getActiveView()
 
-    const newActiveTab = this.tabs.get(tabId)
     let newActiveView = this.tabIdToBrowserView.get(tabId)
     if (newActiveTab && !newActiveView) {
       newActiveView = this.createWebview(newActiveTab.id, newActiveTab.url)
@@ -240,12 +240,12 @@ class AppWindow {
       this.emitUpdateTabs()
     }
 
-    const newTabState = this.tabState.get(tabId)
-    const currentTabState = this.tabState.get(currentActiveTab)
-    if (currentTabState?.findInPage.visible && !newTabState?.findInPage.visible) {
-      this.hideFindInPage()
-    } else if (!currentTabState?.findInPage.visible && newTabState?.findInPage.visible) {
-      this.showFindInPage()
+    if (this.tabIdToBrowserView.get(currentActiveTab)) {
+      this.disableFindInPageForTab(currentActiveTab)
+    }
+
+    if (this.tabIdToBrowserView.get(newActiveTab.id)) {
+      this.showFindInPageForTab(newActiveTab.id)
     }
 
     // Don't removeBrowserView, because it causes a glitchy flash when added back again
@@ -455,100 +455,46 @@ class AppWindow {
 
     // Find in page
     ipcMain.handle(FindInPageEvents.Hide, () => {
-      this.hideFindInPage()
-    })
-    ipcMain.handle(FindInPageEvents.UpdateQuery, (_, query: string) => {
-      console.log(query)
-      this.updateFindInPageQueryForActiveTab(query)
+      if (!this.activeTab) return
+      this.disableFindInPageForTab(this.activeTab)
     })
   }
 
-  findInPageView: BrowserView | undefined = undefined
-  emitFindInPageUpdate() {
-    const activeTab = this.activeTab
-    if (!activeTab) return
-    const state = this.tabState.get(activeTab)
-    if (!state) return
-    this.findInPageView?.webContents.send(
-      MainProcessEmittedEvents.FindInPage_Update,
-      state.findInPage,
-    )
+  tabToFindInPageView = new Map<string, BrowserView>()
+  showFindInPageForTab(tabId: string) {
+    const findInPageView = new BrowserView({
+      webPreferences: {
+        nodeIntegration: true,
+        // contextIsolation: false,
+        // sandbox: false,
+        preload: preloadPath,
+      },
+    })
+    this.loadInternalViewURLOrFile(findInPageView, getInternalViewPath('find'))
+    this.window.addBrowserView(findInPageView)
+    this.window.setTopBrowserView(findInPageView)
+    findInPageView.setBounds({
+      height: FIND_IN_PAGE_HEIGHT,
+      width: FIND_IN_PAGE_WIDTH,
+      y: 0,
+      x: this.window.getBounds().width - (FIND_IN_PAGE_WIDTH + 32),
+    })
+    findInPageView.webContents.focus()
+    this.tabToFindInPageView.set(tabId, findInPageView)
   }
-  updateFindInPageQueryForActiveTab(query: string) {
-    const activeTab = this.activeTab
-    if (!activeTab) return
-    const state = this.tabState.get(activeTab)
-    if (!state) return
-    state.findInPage = {
-      ...state.findInPage,
-      query,
-    }
-    this.getActiveView()?.webContents.findInPage(query)
-    this.emitFindInPageUpdate()
+  disableFindInPageForTab(tabId: string) {
+    const view = this.tabToFindInPageView.get(tabId)
+    if (!view) return
+    this.window.removeBrowserView(view)
+    this.tabToFindInPageView.delete(tabId)
   }
-  showFindInPage() {
-    const activeTab = this.activeTab
-    if (!activeTab) return
-    const state = this.tabState.get(activeTab)
-    if (!state) return
-
-    state.findInPage.visible = true
-
-    if (!this.findInPageView) {
-      const findInPageView = new BrowserView({
-        webPreferences: {
-          nodeIntegration: true,
-          // contextIsolation: false,
-          // sandbox: false,
-          preload: preloadPath,
-        },
-      })
-      this.findInPageView = findInPageView
-      this.loadInternalViewURLOrFile(findInPageView, getInternalViewPath('find'))
-      this.window.addBrowserView(findInPageView)
-      this.window.setTopBrowserView(findInPageView)
-      findInPageView.setBounds({
-        height: FIND_IN_PAGE_HEIGHT,
-        width: FIND_IN_PAGE_WIDTH,
-        y: 0,
-        x: this.window.getBounds().width - (FIND_IN_PAGE_WIDTH + 32),
-      })
+  toggleFindInPageForActiveTab() {
+    if (!this.activeTab) return
+    const view = this.tabToFindInPageView.get(this.activeTab)
+    if (!view) {
+      this.showFindInPageForTab(this.activeTab)
     } else {
-      this.window.addBrowserView(this.findInPageView)
-      this.window.setTopBrowserView(this.findInPageView)
-      this.findInPageView.setBounds({
-        height: FIND_IN_PAGE_HEIGHT,
-        width: FIND_IN_PAGE_WIDTH,
-        y: 0,
-        x: this.window.getBounds().width - (FIND_IN_PAGE_WIDTH + 32),
-      })
-      // this.findInPageView.webContents.reload()
-    }
-    this.findInPageView.webContents.focus()
-    this.findInPageView.webContents.openDevTools({ mode: 'detach' })
-  }
-  hideFindInPage() {
-    if (this.findInPageView) {
-      const activeTab = this.activeTab
-      if (!activeTab) return
-      const state = this.tabState.get(activeTab)
-      if (!state) return
-      if (state.findInPage.visible) {
-        state.findInPage.visible = false
-      }
-      this.window.removeBrowserView(this.findInPageView)
-      this.getActiveView()?.webContents.stopFindInPage('clearSelection')
-    }
-  }
-  toggleFindInPage() {
-    const activeTab = this.activeTab
-    if (!activeTab) return
-    const state = this.tabState.get(activeTab)
-    if (!state) return
-    if (state.findInPage.visible) {
-      this.findInPageView?.webContents.send(MainProcessEmittedEvents.FindInPage_StartHiding)
-    } else {
-      this.showFindInPage()
+      this.disableFindInPageForTab(this.activeTab)
     }
   }
 }
