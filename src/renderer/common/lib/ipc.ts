@@ -1,4 +1,4 @@
-import { ControlEmittedEvents } from '~/shared-types/ipc_events'
+import { ControlEmittedEvents, FindInPageEvents } from 'src/shared/ipc_events'
 import type { RendererListener } from '../../../preload/preload'
 
 export function registerIpcListener(channel: string, listener: RendererListener) {
@@ -8,7 +8,7 @@ export function registerIpcListener(channel: string, listener: RendererListener)
   }
 }
 
-export function sendIpcMessage(channel: ControlEmittedEvents, ...args: any[]) {
+export function sendIpcMessage(channel: ControlEmittedEvents | FindInPageEvents, ...args: any[]) {
   electron.ipcRenderer.send(channel, ...args)
 }
 

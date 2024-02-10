@@ -1,18 +1,19 @@
-import React, { useEffect } from 'react'
 import { Panel, PanelGroup, PanelResizeHandle } from 'react-resizable-panels'
-import { Sidebar } from './components/Sidebar'
-import { NewTabDialog } from './components/NewTabDialog'
-import { sendIpcMessage } from '../common/lib/ipc'
-import { MainProcessEmittedEvents, ControlEmittedEvents } from '~/shared-types/ipc_events'
+import { ControlEmittedEvents, MainProcessEmittedEvents } from 'src/shared/ipc_events'
 import { useIpcListener } from '../common/hooks/useIpcListener'
+import { sendIpcMessage } from '../common/lib/ipc'
+import { NewTabDialog } from './components/NewTabDialog'
+import { Sidebar } from './components/Sidebar'
+import * as React from 'react'
 
 export function App() {
   const [defaultSize, setDefaultSize] = React.useState<number | null>(null)
 
-  useEffect(() => {
+  React.useEffect(() => {
     sendIpcMessage(ControlEmittedEvents.SidebarReady)
   }, [])
   useIpcListener(MainProcessEmittedEvents.SidebarSetInitialWidth, (_, width: number) => {
+    console.log(width)
     setDefaultSize(width)
   })
 
@@ -32,13 +33,7 @@ export function App() {
           <Sidebar />
         </Panel>
         <PanelResizeHandle />
-        <Panel minSize={80}>
-          <div
-            onMouseOver={() => {
-              console.log('mouse over')
-            }}
-          />
-        </Panel>
+        <Panel minSize={80} maxSize={90}></Panel>
       </PanelGroup>
     </div>
   )

@@ -11,4 +11,12 @@ export enum MainProcessEmittedEvents {
   TabsUpdateActiveTab = 'update-active-tab',
   SidebarSetInitialWidth = 'set-initial-sidebar-width',
   NewTabDialogToggle = 'toggle-new-tab-dialog',
+  FindInPage_Update = 'find-in-page__update',
+  FindInPage_SetInitial = 'find-in-page__set-initial',
+}
+
+export enum FindInPageEvents {
+  Show = 'enable-find-in-page',
+  Hide = 'disable-find-in-page',
+  UpdateQuery = 'update-find-in-page-search-query',
 }

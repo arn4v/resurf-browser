@@ -1,12 +1,23 @@
 import { createId } from '@paralleldrive/cuid2'
-import { app, BrowserView, ipcMain, screen, BrowserWindow } from 'electron'
+import { BrowserView, BrowserWindow, app, ipcMain, screen } from 'electron'
 import contextMenu from 'electron-context-menu'
 import Store from 'electron-store'
 import path from 'path'
+import {
+  ControlEmittedEvents,
+  FindInPageEvents,
+  MainProcessEmittedEvents,
+} from 'src/shared/ipc_events'
+import {
+  FIND_IN_PAGE_INITIAL_STATE,
+  Tab,
+  TabState,
+  TabStateInterface,
+  TabsMap,
+} from 'src/shared/tabs'
+import { FIND_IN_PAGE_HEIGHT, FIND_IN_PAGE_WIDTH } from '~/shared/constants'
+import { KeyboardShortcuts } from '../shared/keyboard_shortcuts'
 import { ShortcutManager } from './shortcut_manager'
-import { KeyboardShortcuts } from '../shared-types/keyboard_shortcuts'
-import { Tab, TabsMap } from '~/shared-types/tabs'
-import { MainProcessEmittedEvents, ControlEmittedEvents } from '~/shared-types/ipc_events'
 
 export type Brand<Name extends string, T> = T & { __brand: Name }
 
@@ -38,13 +49,21 @@ type StoredPreferences = {
   tabs: TabsMap
   lastActiveTab: string | null
 }
-const preferencesStore = new Store<StoredPreferences>({})
+const preferencesStore = new Store<StoredPreferences>()
 
+function getInternalViewPath(view: string) {
+  if (MAIN_WINDOW_VITE_DEV_SERVER_URL) {
+    return `${MAIN_WINDOW_VITE_DEV_SERVER_URL}/${view}/index.html`
+  } else {
+    return path.join(__dirname, `../renderer/${MAIN_WINDOW_VITE_NAME}/${view}/index.html`)
+  }
+}
 class AppWindow {
   window: BrowserWindow
-  controlView: BrowserView
+  sidebarView: BrowserView
   tabIdToBrowserView = new Map<string, BrowserView>()
   tabs = new Map<string, Tab>()
+  tabState = new Map<string, TabState>()
   activeTab: string | null = null
   shortcutManager: ShortcutManager
 
@@ -57,24 +76,6 @@ class AppWindow {
             titleBarStyle: 'hidden',
             trafficLightPosition: { x: 16, y: 8 },
             frame: false,
-            // transparent: true,
-            // show: false,
-            // backgroundColor: "#00000000",
-
-            // backgroundColor: "hsla(0, 0%, 0%, 0.5)", // transparent hexadecimal or anything with transparency,
-            // vibrancy: "under-window", // in my case...
-            // visualEffectState: "followWindow",
-
-            // frame: false,
-            // transparent: true,
-            // vibrancy: "under-window",
-            // vibrancy: "sidebar",
-            // backgroundColor: "#00000000", // transparent hexadecimal or anything with transparency,
-            // vibrancy: "window", // in my case...
-            // visualEffectState: "active",
-            // titleBarOverlay: {
-            //   height: 30,
-            // },
           }
         : {}),
       webPreferences: {
@@ -83,36 +84,31 @@ class AppWindow {
       },
     })
 
-    this.controlView = new BrowserView({
+    this.sidebarView = new BrowserView({
       webPreferences: {
         preload: preloadPath,
         nodeIntegration: true,
         // contextIsolation: tru,
       },
     })
-    this.setupControlView()
+    this.setupSidebarView()
 
     this.shortcutManager = new ShortcutManager(this.window)
     this.registerShortcuts()
-    this.setupSidebarEventListeners()
     this.setupResizeAndMoveListeners()
-    this.setupTabEventListeners()
-
+    this.setupIpcHandlers()
     this.restoreTabsOrCreateBlank()
 
-    this.window.on('blur', () => {
+    setInterval(() => {
       this.persistTabs()
-    })
-    this.window.on('close', () => {
-      this.persistTabs()
-    })
+    }, 1000)
   }
 
   restoreTabsOrCreateBlank() {
-    const tabs = new Map<string, Tab>(Object.entries(preferencesStore.get('tabs')))
-    if (tabs.size > 0) {
+    const savedTabs = preferencesStore.get('tabs')
+    if (savedTabs && Object.entries(savedTabs).length >= 1 && !Env.deploy.isDevelopment) {
+      const tabs = new Map<string, Tab>(Object.entries(savedTabs))
       this.tabs = tabs
-
       const lastActiveTab = preferencesStore.get('lastActiveTab')
       if (lastActiveTab) {
         this.activeTab = lastActiveTab
@@ -153,6 +149,9 @@ class AppWindow {
     this.shortcutManager.registerShortcut(KeyboardShortcuts.HistoryForward, () => {
       this.getActiveView()?.webContents.goForward()
     })
+    this.shortcutManager.registerShortcut(KeyboardShortcuts.FindInPage, () => {
+      this.toggleFindInPage()
+    })
   }
 
   switchTab(direction: number) {
@@ -162,7 +161,7 @@ class AppWindow {
     if (currentTabIndex === -1) return
 
     // Calculate the new active tab index, wrapping around if necessary
-    let newActiveTabIndex = (currentTabIndex + direction + tabsArray.length) % tabsArray.length
+    const newActiveTabIndex = (currentTabIndex + direction + tabsArray.length) % tabsArray.length
 
     // Get the new active tab ID
     const newActiveTabId = tabsArray[newActiveTabIndex]
@@ -218,9 +217,9 @@ class AppWindow {
     if (!this.tabs.get(tabId)) return
     if (!noSanityChecks && this.activeTab === tabId) return
 
-    // const activeView = this.getActiveView();
+    // const activeView = this.getActiveView()
 
-    let newActiveTab = this.tabs.get(tabId)
+    const newActiveTab = this.tabs.get(tabId)
     let newActiveView = this.tabIdToBrowserView.get(tabId)
     if (newActiveTab && !newActiveView) {
       newActiveView = this.createWebview(newActiveTab.id, newActiveTab.url)
@@ -234,16 +233,22 @@ class AppWindow {
       // Set controlView as top view first, so that controlView zIndex = 0, newActiveView zIndex = 1
       // This fixes the bug where previous active view is on top of controlView, causing it to show when the
       // sidebar is resized
-      this.window.setTopBrowserView(this.controlView)
+      this.window.setTopBrowserView(this.sidebarView)
       this.window.addBrowserView(newActiveView)
       this.window.setTopBrowserView(newActiveView)
+
+      const state = this.tabState.get(tabId)
+      if (state?.findInPage.visible) {
+        this.showFindInPage()
+      }
+
       this.emitUpdateTabs()
     }
 
     // Don't removeBrowserView, because it causes a glitchy flash when added back again
     // Keep as many browser views in memory as possible
     // if (activeView) {
-    //   this.window.removeBrowserView(activeView);
+    // this.window.removeBrowserView(activeView);
     // }
   }
 
@@ -274,8 +279,12 @@ class AppWindow {
       title: url,
       parent,
     }
+    const tabSessionState: TabStateInterface = {
+      findInPage: FIND_IN_PAGE_INITIAL_STATE,
+    }
     const tabView = this.createWebview(tabId, url)
     this.tabIdToBrowserView.set(tabId, tabView)
+    this.tabState.set(tabId, tabSessionState)
     this.tabs.set(tabId, tab)
     if (focus) {
       this.setActiveTab(tabId)
@@ -352,11 +361,11 @@ class AppWindow {
   }
 
   emitControlEvent(channel: MainProcessEmittedEvents, ...args: any[]) {
-    this.controlView.webContents.send(channel, ...args)
+    this.sidebarView.webContents.send(channel, ...args)
   }
 
-  setupControlView() {
-    const controlView = this.controlView
+  setupSidebarView() {
+    const controlView = this.sidebarView
     controlView.setBackgroundColor('hsla(0, 0%, 100%, 0.0)')
     controlView.setBounds({
       ...this.window.getBounds(),
@@ -365,18 +374,20 @@ class AppWindow {
     controlView.setAutoResize({ width: true, height: true })
     // and load the index.html of the app.
 
-    if (MAIN_WINDOW_VITE_DEV_SERVER_URL) {
-      controlView.webContents.loadURL(MAIN_WINDOW_VITE_DEV_SERVER_URL)
-    } else {
-      controlView.webContents.loadFile(
-        path.join(__dirname, `../renderer/${MAIN_WINDOW_VITE_NAME}/index.html`),
-      )
-    }
+    this.loadInternalViewURLOrFile(controlView, getInternalViewPath('sidebar'))
     if (Env.deploy.isDevelopment) {
       controlView.webContents.openDevTools()
     }
     this.window.addBrowserView(controlView)
     this.window.setTopBrowserView(controlView)
+  }
+
+  loadInternalViewURLOrFile(view: BrowserView, urlOrFilePath: string) {
+    if (MAIN_WINDOW_VITE_DEV_SERVER_URL) {
+      view.webContents.loadURL(urlOrFilePath)
+    } else {
+      view.webContents.loadFile(urlOrFilePath)
+    }
   }
 
   getWindowBounds() {
@@ -401,7 +412,20 @@ class AppWindow {
     }
   }
 
-  setupSidebarEventListeners() {
+  setupResizeAndMoveListeners() {
+    this.window.on('resize', () => {
+      const { width, height, x, y } = this.window.getBounds()
+      this.getActiveView()?.setBounds(this.getWebviewBounds())
+      preferencesStore.set('windowBounds', { width, height, x, y })
+    })
+    this.window.on('move', () => {
+      const { width, height, x, y } = this.window.getBounds()
+      preferencesStore.set('windowBounds', { width, height, x, y })
+    })
+  }
+
+  setupIpcHandlers() {
+    // Sidebar
     ipcMain.on(ControlEmittedEvents.SidebarReady, (event) => {
       const storedWidth = preferencesStore.get('sidebarWidth')
       event.reply(MainProcessEmittedEvents.SidebarSetInitialWidth, storedWidth || 15)
@@ -413,9 +437,8 @@ class AppWindow {
         this.tabIdToBrowserView.get(key)?.setBounds(this.getWebviewBounds())
       }
     })
-  }
 
-  setupTabEventListeners() {
+    // Tabs
     ipcMain.on(ControlEmittedEvents.Tabs_Ready, (event) => {
       event.reply(MainProcessEmittedEvents.Tabs_UpdateTabs, Object.fromEntries(this.tabs.entries()))
       event.reply(MainProcessEmittedEvents.TabsUpdateActiveTab, this.activeTab)
@@ -426,18 +449,106 @@ class AppWindow {
     ipcMain.on(ControlEmittedEvents.Tabs_UpdateActiveTab, (_, tabId: string) => {
       this.setActiveTab(tabId)
     })
+
+    // Find in page
+    ipcMain.handle(FindInPageEvents.Hide, () => {
+      this.hideFindInPage()
+    })
+    ipcMain.handle(FindInPageEvents.UpdateQuery, (_, query: string) => {
+      console.log(query)
+      this.updateFindInPageQueryForActiveTab(query)
+    })
   }
 
-  setupResizeAndMoveListeners() {
-    this.window.on('resize', () => {
-      const { width, height, x, y } = this.window.getBounds()
-      this.getActiveView()?.setBounds(this.getWebviewBounds())
-      preferencesStore.set('windowBounds', { width, height, x, y })
-    })
-    this.window.on('move', () => {
-      const { width, height, x, y } = this.window.getBounds()
-      preferencesStore.set('windowBounds', { width, height, x, y })
-    })
+  findInPageView: BrowserView | undefined = undefined
+  emitFindInPageUpdate() {
+    const activeTab = this.activeTab
+    if (!activeTab) return
+    const state = this.tabState.get(activeTab)
+    if (!state) return
+    this.findInPageView?.webContents.send(
+      MainProcessEmittedEvents.FindInPage_Update,
+      state.findInPage,
+    )
+  }
+  updateFindInPageQueryForActiveTab(query: string) {
+    const activeTab = this.activeTab
+    if (!activeTab) return
+    const state = this.tabState.get(activeTab)
+    if (!state) return
+    state.findInPage = {
+      ...state.findInPage,
+      query,
+    }
+    this.getActiveView()?.webContents.findInPage(query)
+    this.emitFindInPageUpdate()
+  }
+  showFindInPage() {
+    const activeTab = this.activeTab
+    if (!activeTab) return
+    const state = this.tabState.get(activeTab)
+    if (!state) return
+
+    if (!this.findInPageView) {
+      const findInPageView = new BrowserView({
+        webPreferences: {
+          nodeIntegration: true,
+          // contextIsolation: false,
+          // sandbox: false,
+          preload: preloadPath,
+        },
+      })
+      this.findInPageView = findInPageView
+      this.loadInternalViewURLOrFile(findInPageView, getInternalViewPath('find'))
+      this.window.addBrowserView(findInPageView)
+      this.window.setTopBrowserView(findInPageView)
+      findInPageView.setBounds({
+        height: FIND_IN_PAGE_HEIGHT,
+        width: FIND_IN_PAGE_WIDTH,
+        y: 0,
+        x: this.window.getBounds().width - (FIND_IN_PAGE_WIDTH + 32),
+      })
+    } else {
+      const isAlreadyVisibile = state.findInPage.visible
+      if (isAlreadyVisibile) return
+
+      this.window.addBrowserView(this.findInPageView)
+      this.window.setTopBrowserView(this.findInPageView)
+      this.findInPageView.setBounds({
+        height: FIND_IN_PAGE_HEIGHT,
+        width: FIND_IN_PAGE_WIDTH,
+        y: 0,
+        x: this.window.getBounds().width - (FIND_IN_PAGE_WIDTH + 32),
+      })
+    }
+
+    this.findInPageView.webContents.focus()
+    this.findInPageView.webContents.openDevTools({ mode: 'detach' })
+    state.findInPage.visible = true
+  }
+  hideFindInPage() {
+    if (this.findInPageView) {
+      const activeTab = this.activeTab
+      if (!activeTab) return
+      const state = this.tabState.get(activeTab)
+      if (!state) return
+      if (state.findInPage.visible) {
+        state.findInPage.visible = false
+      }
+      this.window.removeBrowserView(this.findInPageView)
+      this.getActiveView()?.webContents.stopFindInPage('clearSelection')
+    }
+  }
+  toggleFindInPage() {
+    const activeTab = this.activeTab
+    if (!activeTab) return
+    const state = this.tabState.get(activeTab)
+    if (!state) return
+    if (state.findInPage.visible) {
+      this.hideFindInPage()
+    } else {
+      this.showFindInPage()
+    }
   }
 }
 

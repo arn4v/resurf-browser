@@ -4,8 +4,8 @@ import { useDidMount } from 'rooks'
 import { useIpcListener } from '~/common/hooks/useIpcListener'
 import { sendIpcMessage } from '~/common/lib/ipc'
 import { cn } from '~/common/lib/utils'
-import { ControlEmittedEvents, MainProcessEmittedEvents } from '~/shared-types/ipc_events'
-import { Tab, TabsMap } from '~/shared-types/tabs'
+import { ControlEmittedEvents, MainProcessEmittedEvents } from 'src/shared/ipc_events'
+import { Tab, TabsMap } from 'src/shared/tabs'
 
 export function Sidebar() {
   const [tabs, setTabs] = React.useState<TabsMap | null>(null)
@@ -27,6 +27,7 @@ export function Sidebar() {
       <div
         className='h-8 w-full'
         style={{
+          // eslint-disable-next-line
           // @ts-ignore
           '-webkit-app-region': 'drag',
         }}
@@ -45,7 +46,7 @@ function Tabs({ tabs: tabsMap, activeTab }: { tabs: TabsMap; activeTab: Tab['id'
   return (
     <ul className='pl-3 pr-1.5 w-full flex flex-col gap-1 '>
       {topLevelTabs.map((parent) => {
-        return <TabItem tab={parent} tabs={tabs} activeTab={activeTab} />
+        return <TabItem key={parent.id} tab={parent} tabs={tabs} activeTab={activeTab} />
       })}
     </ul>
   )
@@ -59,7 +60,7 @@ function TabItem({ tab, tabs, activeTab }: { tabs: Tab[]; tab: Tab; activeTab: T
         if (!child.parent) return false
         return child.parent === tab.id
       }),
-    [tabs],
+    [tabs, tab.id],
   )
 
   return (
@@ -77,7 +78,7 @@ function TabItem({ tab, tabs, activeTab }: { tabs: Tab[]; tab: Tab; activeTab: T
       >
         <div className='items-center flex pl-2 gap-1 w-full flex-grow'>
           <div
-            className={cn('h-full grid place-items-center', children.length && 'hover:bg-gray-300')}
+            className={cn('h-full grid place-items-center', children.length && 'hover:bg-gray-600')}
             onClick={() => {
               if (children.length) setExpanded((prev) => !prev)
             }}
@@ -106,7 +107,7 @@ function TabItem({ tab, tabs, activeTab }: { tabs: Tab[]; tab: Tab; activeTab: T
         </div>
         <div className='invisible group-hover:visible flex items-center justify-center gap-2 pr-3 shrink-0'>
           <div
-            className='rounded hover:bg-gray-300 p-1 cursor-pointer grid place-items-center'
+            className='rounded hover:bg-zinc-600 p-1 cursor-pointer grid place-items-center'
             onClick={(e) => {
               e.stopPropagation()
               sendIpcMessage(ControlEmittedEvents.Tabs_CloseTab, tab.id)
@@ -120,7 +121,7 @@ function TabItem({ tab, tabs, activeTab }: { tabs: Tab[]; tab: Tab; activeTab: T
       {expanded && (
         <ul className='ml-3 w-full flex flex-col gap-1'>
           {children.map((parent) => {
-            return <TabItem activeTab={activeTab} tab={parent} tabs={tabs} />
+            return <TabItem key={parent.id} activeTab={activeTab} tab={parent} tabs={tabs} />
           })}
         </ul>
       )}

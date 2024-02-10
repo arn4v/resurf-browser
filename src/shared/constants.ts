@@ -1,0 +1,5 @@
+export const FIND_IN_PAGE_HEIGHT = 44
+export const FIND_IN_PAGE_WIDTH = 384
+
+export const SIDEBAR_INITIAL_WIDTH = 250
+export const SIDEBAR_MAXIMUM_WIDTH = 300

@@ -65,8 +65,8 @@ export const globals = {
 } as const
 
 declare global {
-  var electron: typeof globals
-  var ipcRenderer: (typeof globals)['ipcRenderer']
+  const electron: typeof globals
+  const ipcRenderer: (typeof globals)['ipcRenderer']
 }
 
 /** Create a safe, bidirectional, synchronous bridge across isolated contexts
