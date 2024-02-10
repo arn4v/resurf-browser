@@ -13,6 +13,7 @@ export enum MainProcessEmittedEvents {
   NewTabDialogToggle = 'toggle-new-tab-dialog',
   FindInPage_Update = 'find-in-page__update',
   FindInPage_SetInitial = 'find-in-page__set-initial',
+  FindInPage_StartHiding = 'find-in-page_start-hiding',
 }
 
 export enum FindInPageEvents {

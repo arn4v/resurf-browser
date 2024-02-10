@@ -216,7 +216,7 @@ class AppWindow {
   setActiveTab(tabId: Tab['id'], noSanityChecks = false) {
     if (!this.tabs.get(tabId)) return
     if (!noSanityChecks && this.activeTab === tabId) return
-
+    const currentActiveTab = this.activeTab as string
     // const activeView = this.getActiveView()
 
     const newActiveTab = this.tabs.get(tabId)
@@ -237,12 +237,15 @@ class AppWindow {
       this.window.addBrowserView(newActiveView)
       this.window.setTopBrowserView(newActiveView)
 
-      const state = this.tabState.get(tabId)
-      if (state?.findInPage.visible) {
-        this.showFindInPage()
-      }
-
       this.emitUpdateTabs()
+    }
+
+    const newTabState = this.tabState.get(tabId)
+    const currentTabState = this.tabState.get(currentActiveTab)
+    if (currentTabState?.findInPage.visible && !newTabState?.findInPage.visible) {
+      this.hideFindInPage()
+    } else if (!currentTabState?.findInPage.visible && newTabState?.findInPage.visible) {
+      this.showFindInPage()
     }
 
     // Don't removeBrowserView, because it causes a glitchy flash when added back again
@@ -489,6 +492,8 @@ class AppWindow {
     const state = this.tabState.get(activeTab)
     if (!state) return
 
+    state.findInPage.visible = true
+
     if (!this.findInPageView) {
       const findInPageView = new BrowserView({
         webPreferences: {
@@ -509,9 +514,6 @@ class AppWindow {
         x: this.window.getBounds().width - (FIND_IN_PAGE_WIDTH + 32),
       })
     } else {
-      const isAlreadyVisibile = state.findInPage.visible
-      if (isAlreadyVisibile) return
-
       this.window.addBrowserView(this.findInPageView)
       this.window.setTopBrowserView(this.findInPageView)
       this.findInPageView.setBounds({
@@ -520,11 +522,10 @@ class AppWindow {
         y: 0,
         x: this.window.getBounds().width - (FIND_IN_PAGE_WIDTH + 32),
       })
+      // this.findInPageView.webContents.reload()
     }
-
     this.findInPageView.webContents.focus()
     this.findInPageView.webContents.openDevTools({ mode: 'detach' })
-    state.findInPage.visible = true
   }
   hideFindInPage() {
     if (this.findInPageView) {
@@ -545,7 +546,7 @@ class AppWindow {
     const state = this.tabState.get(activeTab)
     if (!state) return
     if (state.findInPage.visible) {
-      this.hideFindInPage()
+      this.findInPageView?.webContents.send(MainProcessEmittedEvents.FindInPage_StartHiding)
     } else {
       this.showFindInPage()
     }
@@ -598,6 +599,3 @@ app.on('activate', () => {
     windows.set(id, window)
   }
 })
-
-// In this file you can include the rest of your app's specific main process
-// code. You can also put them in separate files and import them here.
