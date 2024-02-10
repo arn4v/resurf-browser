@@ -1,5 +1,13 @@
 import { createId } from '@paralleldrive/cuid2'
-import { BrowserView, BrowserWindow, app, ipcMain, screen } from 'electron'
+import {
+  BrowserView,
+  BrowserWindow,
+  app,
+  ipcMain,
+  screen,
+  webContents,
+  webContents,
+} from 'electron'
 import contextMenu from 'electron-context-menu'
 import Store from 'electron-store'
 import path from 'path'
@@ -44,6 +52,7 @@ type StoredPreferences = {
   lastActiveTab: string | null
 }
 const preferencesStore = new Store<StoredPreferences>()
+preferencesStore.clear()
 
 function getInternalViewPath(view: string) {
   if (MAIN_WINDOW_VITE_DEV_SERVER_URL) {
@@ -52,10 +61,46 @@ function getInternalViewPath(view: string) {
     return path.join(__dirname, `../renderer/${MAIN_WINDOW_VITE_NAME}/${view}/index.html`)
   }
 }
+
+class BidiMap<K, V> {
+  private keyToValue = new Map<K, V>()
+  private valueToKey = new Map<V, K>()
+
+  set(key: K, value: V): void {
+    this.keyToValue.set(key, value)
+    this.valueToKey.set(value, key)
+  }
+
+  getByKey(key: K): V | undefined {
+    return this.keyToValue.get(key)
+  }
+
+  getByValue(value: V): K | undefined {
+    return this.valueToKey.get(value)
+  }
+
+  deleteByKey(key: K): boolean {
+    const value = this.keyToValue.get(key)
+    if (value !== undefined) {
+      this.valueToKey.delete(value)
+    }
+    return this.keyToValue.delete(key)
+  }
+
+  deleteByValue(value: V): boolean {
+    const key = this.valueToKey.get(value)
+    if (key !== undefined) {
+      this.keyToValue.delete(key)
+    }
+    return this.valueToKey.delete(value)
+  }
+}
+
 class AppWindow {
   window: BrowserWindow
   sidebarView: BrowserView
-  tabIdToBrowserView = new Map<string, BrowserView>()
+  tabToBrowserView = new Map<string, BrowserView>()
+  tabToWebContentsId = new BidiMap<string, number>()
   tabs = new Map<string, Tab>()
   activeTab: string | null = null
   shortcutManager: ShortcutManager
@@ -100,15 +145,11 @@ class AppWindow {
   restoreTabsOrCreateBlank() {
     const savedTabs = preferencesStore.get('tabs')
     if (savedTabs && Object.entries(savedTabs).length >= 1 && !Env.deploy.isDevelopment) {
-      const tabs = new Map<string, Tab>(Object.entries(savedTabs))
+      const tabsArr = Object.entries(savedTabs)
+      const tabs = new Map<string, Tab>(tabsArr)
       this.tabs = tabs
-      const lastActiveTab = preferencesStore.get('lastActiveTab')
-      if (lastActiveTab) {
-        this.activeTab = lastActiveTab
-        this.setActiveTab(lastActiveTab, true)
-      } else {
-        this.setActiveTab(tabs.get([...tabs.keys()][0])!.id, true)
-      }
+      const lastActiveTab = preferencesStore.get('lastActiveTab') || tabsArr[0][0]
+      this.setActiveTab(lastActiveTab)
       this.emitUpdateTabs()
     } else {
       this.newTab('https://google.com', true)
@@ -117,7 +158,7 @@ class AppWindow {
 
   getActiveView() {
     if (!this.activeTab) return undefined
-    return this.tabIdToBrowserView.get(this.activeTab)
+    return this.tabToBrowserView.get(this.activeTab)
   }
 
   registerShortcuts() {
@@ -128,7 +169,9 @@ class AppWindow {
       if (this.activeTab) this.closeTab(this.activeTab)
     })
     this.shortcutManager.registerShortcut(KeyboardShortcuts.ReloadPage, () => {
+      if (!this.activeTab) return
       this.getActiveView()?.webContents.reload()
+      this.destroyFindInPageForTab(this.activeTab)
     })
     this.shortcutManager.registerShortcut(KeyboardShortcuts.NextTab, () => {
       this.switchTab(+1)
@@ -241,9 +284,9 @@ class AppWindow {
     }
   }
 
-  /********
-   * TABS *
-   ********/
+  /* -------------------------------------------------------------------------- */
+  /*                                    TABS                                    */
+  /* -------------------------------------------------------------------------- */
   switchTab(direction: number) {
     if (!this.activeTab) return
     const tabsArray = Array.from(this.tabs.keys())
@@ -285,18 +328,19 @@ class AppWindow {
       }
 
       // Remove the closing tab from the data structures and UI
-      const browserView = this.tabIdToBrowserView.get(tabId)
+      const browserView = this.tabToBrowserView.get(tabId)
       if (browserView) {
         this.window.removeBrowserView(browserView)
         browserView.webContents.close() // Ensure the BrowserView is properly cleaned up
       }
-      this.tabIdToBrowserView.delete(tabId)
+      this.tabToBrowserView.delete(tabId)
       this.tabs.delete(tabId)
+      this.destroyFindInPageForTab(tabId)
 
       // Update the UI to reflect the new state of the tabs
       this.emitUpdateTabs()
 
-      const newActiveView = this.tabIdToBrowserView.get(tabId)
+      const newActiveView = this.tabToBrowserView.get(tabId)
       if (newActiveView) {
         newActiveView.webContents.focus() // This will focus the BrowserView's contents
       }
@@ -307,13 +351,14 @@ class AppWindow {
     const newActiveTab = this.tabs.get(tabId)
     if (!newActiveTab) return
     if (!noSanityChecks && this.activeTab === tabId) return
-    const currentActiveTab = this.activeTab as string
+    const currentActiveTab = this.activeTab
     // const activeView = this.getActiveView()
 
-    let newActiveView = this.tabIdToBrowserView.get(tabId)
+    let newActiveView = this.tabToBrowserView.get(tabId)
     if (newActiveTab && !newActiveView) {
       newActiveView = this.createWebview(newActiveTab.id, newActiveTab.url)
-      this.tabIdToBrowserView.set(newActiveTab.id, newActiveView)
+      this.tabToBrowserView.set(newActiveTab.id, newActiveView)
+      this.tabToWebContentsId.set(newActiveTab.id, newActiveView.webContents.id)
     }
 
     if (newActiveView) {
@@ -330,11 +375,11 @@ class AppWindow {
       this.emitUpdateTabs()
     }
 
-    if (this.tabIdToBrowserView.get(currentActiveTab)) {
-      this.disableFindInPageForTab(currentActiveTab)
+    if (currentActiveTab && this.tabToFindInPageView.get(currentActiveTab)) {
+      this.hideFindInPageForTab(currentActiveTab)
     }
 
-    if (this.tabIdToBrowserView.get(newActiveTab.id)) {
+    if (this.tabToFindInPageView.get(newActiveTab.id)) {
       this.showFindInPageForTab(newActiveTab.id)
     }
 
@@ -374,8 +419,9 @@ class AppWindow {
       title: url,
       parent,
     }
-    const tabView = this.createWebview(tabId, url)
-    this.tabIdToBrowserView.set(tabId, tabView)
+    const view = this.createWebview(tabId, url)
+    this.tabToBrowserView.set(tabId, view)
+    this.tabToWebContentsId.set(tabId, view.webContents.id)
     this.tabs.set(tabId, tab)
     if (focus) {
       this.setActiveTab(tabId)
@@ -397,13 +443,14 @@ class AppWindow {
     })
   }
 
-  /****************
-   * FIND IN PAGE *
-   ****************/
+  /* -------------------------------------------------------------------------- */
+  /*                                FIND IN PAGE                                */
+  /* -------------------------------------------------------------------------- */
   tabToFindInPageView = new Map<string, BrowserView>()
+  tabToFindInPageVisibility = new Map<string, boolean>()
 
-  showFindInPageForTab(tabId: string) {
-    const findInPageView = new BrowserView({
+  createBrowserViewForFindInPage() {
+    const view = new BrowserView({
       webPreferences: {
         nodeIntegration: true,
         // contextIsolation: false,
@@ -411,7 +458,14 @@ class AppWindow {
         preload: preloadPath,
       },
     })
-    this.loadInternalViewURLOrFile(findInPageView, getInternalViewPath('find'))
+    this.loadInternalViewURLOrFile(view, getInternalViewPath('find'))
+    return view
+  }
+
+  showFindInPageForTab(tabId: string) {
+    const findInPageView =
+      this.tabToFindInPageView.get(tabId) || this.createBrowserViewForFindInPage()
+
     this.window.addBrowserView(findInPageView)
     this.window.setTopBrowserView(findInPageView)
     findInPageView.setBounds({
@@ -422,22 +476,41 @@ class AppWindow {
     })
     findInPageView.webContents.focus()
     this.tabToFindInPageView.set(tabId, findInPageView)
+    this.tabToFindInPageVisibility.set(tabId, true)
   }
 
-  disableFindInPageForTab(tabId: string) {
+  hideFindInPageForTab(tabId: string) {
     const view = this.tabToFindInPageView.get(tabId)
     if (!view) return
     this.window.removeBrowserView(view)
-    this.tabToFindInPageView.delete(tabId)
+    this.tabToFindInPageVisibility.set(tabId, false)
+    view.webContents.stopFindInPage('clearSelection')
   }
 
-  toggleFindInPageForActiveTab() {
-    if (!this.activeTab) return
-    const view = this.tabToFindInPageView.get(this.activeTab)
-    if (!view) {
-      this.showFindInPageForTab(this.activeTab)
+  destroyFindInPageForTab(tabId: string) {
+    this.hideFindInPageForTab(tabId)
+    this.tabToFindInPageView.delete(tabId)
+    this.stopFindInPage(tabId)
+  }
+
+  stopFindInPage(tabId: string) {
+    const tab = this.tabToBrowserView.get(tabId)
+    if (!tab) return
+    tab.webContents.stopFindInPage('clearSelection')
+  }
+
+  findInPage(params: { tabId: string; query: string; findNext: boolean; forward: boolean }) {
+    const { tabId, query, findNext, forward } = params
+    const tab = this.tabToBrowserView.get(tabId)
+    if (!tab) return
+    if (query === '') {
+      this.stopFindInPage(tabId)
     } else {
-      this.disableFindInPageForTab(this.activeTab)
+      tab.webContents.findInPage(query, {
+        matchCase: false,
+        findNext,
+        forward,
+      })
     }
   }
 
@@ -445,13 +518,28 @@ class AppWindow {
     // Find in page
     ipcMain.handle(FindInPageEvents.Hide, () => {
       if (!this.activeTab) return
-      this.disableFindInPageForTab(this.activeTab)
+      this.hideFindInPageForTab(this.activeTab)
     })
+    ipcMain.handle(
+      FindInPageEvents.UpdateQuery,
+      (_, query: string, findNext: boolean, forward: boolean) => {
+        if (!this.activeTab) return
+        this.findInPage({ tabId: this.activeTab, query, findNext, forward })
+      },
+    )
   }
 
-  /***********
-   * SIDEBAR *
-   ***********/
+  toggleFindInPageForActiveTab() {
+    const tabId = this.activeTab
+    if (!tabId) return
+    const visbility = this.tabToFindInPageVisibility.get(tabId)
+    this.tabToFindInPageVisibility.set(tabId, !visbility)
+    this.showFindInPageForTab(tabId)
+  }
+
+  /* -------------------------------------------------------------------------- */
+  /*                                   SIDEBAR                                  */
+  /* -------------------------------------------------------------------------- */
   emitSidebarEvent(channel: MainProcessEmittedEvents, ...args: any[]) {
     this.sidebarView.webContents.send(channel, ...args)
   }
@@ -487,15 +575,15 @@ class AppWindow {
     ipcMain.on(ControlEmittedEvents.SidebarUpdateWidth, (_, sidebarWidth: number) => {
       preferencesStore.set('sidebarWidth', sidebarWidth)
       this.getActiveView()?.setBounds(this.getWebviewBounds())
-      for (const key in this.tabIdToBrowserView.keys()) {
-        this.tabIdToBrowserView.get(key)?.setBounds(this.getWebviewBounds())
+      for (const key in this.tabToBrowserView.keys()) {
+        this.tabToBrowserView.get(key)?.setBounds(this.getWebviewBounds())
       }
     })
   }
 
-  /*******************
-   * PUBSUB HANDLERS *
-   *******************/
+  /* -------------------------------------------------------------------------- */
+  /*                               PUBSUB HANDLERS                              */
+  /* -------------------------------------------------------------------------- */
   setupResizeAndMoveListeners() {
     this.window.on('resize', () => {
       const { width, height, x, y } = this.window.getBounds()
@@ -510,6 +598,7 @@ class AppWindow {
   setupIpcHandlers() {
     this.setupSidebarHandlers()
     this.setupTabHandlers()
+    this.setupFindInPageHandlers()
   }
 }
 
