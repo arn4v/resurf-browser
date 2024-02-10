@@ -1,13 +1,5 @@
 import { createId } from '@paralleldrive/cuid2'
-import {
-  BrowserView,
-  BrowserWindow,
-  app,
-  ipcMain,
-  screen,
-  webContents,
-  webContents,
-} from 'electron'
+import { BrowserView, BrowserWindow, app, ipcMain, screen } from 'electron'
 import contextMenu from 'electron-context-menu'
 import Store from 'electron-store'
 import path from 'path'
@@ -480,11 +472,14 @@ class AppWindow {
   }
 
   hideFindInPageForTab(tabId: string) {
+    const webview = this.tabToBrowserView.get(tabId)
+    if (!webview) return
+    webview.webContents.stopFindInPage('clearSelection')
+
     const view = this.tabToFindInPageView.get(tabId)
     if (!view) return
     this.window.removeBrowserView(view)
     this.tabToFindInPageVisibility.set(tabId, false)
-    view.webContents.stopFindInPage('clearSelection')
   }
 
   destroyFindInPageForTab(tabId: string) {
@@ -501,12 +496,13 @@ class AppWindow {
 
   findInPage(params: { tabId: string; query: string; findNext: boolean; forward: boolean }) {
     const { tabId, query, findNext, forward } = params
-    const tab = this.tabToBrowserView.get(tabId)
-    if (!tab) return
+    const webview = this.tabToBrowserView.get(tabId)
+    if (!webview) return
     if (query === '') {
       this.stopFindInPage(tabId)
     } else {
-      tab.webContents.findInPage(query, {
+      webview.webContents.stopFindInPage('clearSelection')
+      webview.webContents.findInPage(query, {
         matchCase: false,
         findNext,
         forward,

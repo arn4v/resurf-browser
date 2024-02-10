@@ -19,7 +19,7 @@ function App() {
   }
 
   React.useEffect(() => {
-    ipcRenderer.invoke(FindInPageEvents.UpdateQuery, debouncedQuery, false, true)
+    ipcRenderer.invoke(FindInPageEvents.UpdateQuery, debouncedQuery, true, true)
   }, [debouncedQuery])
   useIpcListener(MainProcessEmittedEvents.FindInPage_StartHiding, () => {
     close()
