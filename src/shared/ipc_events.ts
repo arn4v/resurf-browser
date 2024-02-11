@@ -21,3 +21,9 @@ export enum FindInPageEvents {
   Hide = 'disable-find-in-page',
   UpdateQuery = 'update-find-in-page-search-query',
 }
+
+export enum AddressBarEvents {
+  Go = 'go',
+  Close = 'close',
+  GetCurrentUrl = 'get-current-url',
+}

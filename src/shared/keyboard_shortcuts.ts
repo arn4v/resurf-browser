@@ -8,4 +8,5 @@ export enum KeyboardShortcuts {
   HistoryBack = `${ELECTRON_MOD_KEY}+[`,
   HistoryForward = `${ELECTRON_MOD_KEY}+]`,
   FindInPage = `${ELECTRON_MOD_KEY}+F`,
+  OpenAddressBar = `${ELECTRON_MOD_KEY}+L`,
 }

@@ -12,7 +12,7 @@ const root = createRoot(container)
 
 function App() {
   const [query, setQuery] = React.useState('')
-  const [debouncedQuery] = useDebouncedValue(query, 500)
+  const [debouncedQuery] = useDebouncedValue(query, 50)
 
   const close = async () => {
     ipcRenderer.invoke(FindInPageEvents.Hide)

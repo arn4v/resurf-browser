@@ -1,9 +1,11 @@
 import { createId } from '@paralleldrive/cuid2'
+import { parse } from 'tldts'
 import { BrowserView, BrowserWindow, app, ipcMain, screen } from 'electron'
 import contextMenu from 'electron-context-menu'
 import Store from 'electron-store'
 import path from 'path'
 import {
+  AddressBarEvents,
   ControlEmittedEvents,
   FindInPageEvents,
   MainProcessEmittedEvents,
@@ -12,6 +14,7 @@ import { Tab, TabsMap } from 'src/shared/tabs'
 import { FIND_IN_PAGE_HEIGHT, FIND_IN_PAGE_WIDTH } from '~/shared/constants'
 import { KeyboardShortcuts } from '../shared/keyboard_shortcuts'
 import { ShortcutManager } from './shortcut_manager'
+import { z } from 'zod'
 
 export type Brand<Name extends string, T> = T & { __brand: Name }
 
@@ -53,6 +56,8 @@ function getInternalViewPath(view: string) {
     return path.join(__dirname, `../renderer/${MAIN_WINDOW_VITE_NAME}/${view}/index.html`)
   }
 }
+
+const isUrl = (url: string) => z.string().url().safeParse(url).success
 
 class BidiMap<K, V> {
   private keyToValue = new Map<K, V>()
@@ -129,6 +134,8 @@ class AppWindow {
     this.setupIpcHandlers()
     this.restoreTabsOrCreateBlank()
 
+    this.addressBarView = this.createBrowserViewForControlInterface('address_bar')
+
     setInterval(() => {
       this.persistTabs()
     }, 1000)
@@ -178,7 +185,11 @@ class AppWindow {
       this.getActiveView()?.webContents.goForward()
     })
     this.shortcutManager.registerShortcut(KeyboardShortcuts.FindInPage, () => {
+      this.closeAddressBar()
       this.toggleFindInPageForActiveTab()
+    })
+    this.shortcutManager.registerShortcut(KeyboardShortcuts.OpenAddressBar, () => {
+      this.toggleAddressBar()
     })
   }
 
@@ -187,9 +198,9 @@ class AppWindow {
     this.shortcutManager.unregisterShortcuts()
   }
 
-  /*******************
-   * WEBVIEW HELPERS *
-   *******************/
+  /* -------------------------------------------------------------------------- */
+  /*                               WEBVIEW HELPERS                              */
+  /* -------------------------------------------------------------------------- */
   getWindowBounds() {
     const windowBounds = preferencesStore.get('windowBounds')
     const bounds = windowBounds ?? screen.getPrimaryDisplay().workAreaSize
@@ -266,6 +277,19 @@ class AppWindow {
     })
 
     return tabView
+  }
+
+  createBrowserViewForControlInterface(name: string) {
+    const view = new BrowserView({
+      webPreferences: {
+        nodeIntegration: true,
+        // contextIsolation: false,
+        // sandbox: false,
+        preload: preloadPath,
+      },
+    })
+    this.loadInternalViewURLOrFile(view, getInternalViewPath(name))
+    return view
   }
 
   loadInternalViewURLOrFile(view: BrowserView, urlOrFilePath: string) {
@@ -441,22 +465,9 @@ class AppWindow {
   tabToFindInPageView = new Map<string, BrowserView>()
   tabToFindInPageVisibility = new Map<string, boolean>()
 
-  createBrowserViewForFindInPage() {
-    const view = new BrowserView({
-      webPreferences: {
-        nodeIntegration: true,
-        // contextIsolation: false,
-        // sandbox: false,
-        preload: preloadPath,
-      },
-    })
-    this.loadInternalViewURLOrFile(view, getInternalViewPath('find'))
-    return view
-  }
-
   showFindInPageForTab(tabId: string) {
     const findInPageView =
-      this.tabToFindInPageView.get(tabId) || this.createBrowserViewForFindInPage()
+      this.tabToFindInPageView.get(tabId) || this.createBrowserViewForControlInterface('find')
 
     this.window.addBrowserView(findInPageView)
     this.window.setTopBrowserView(findInPageView)
@@ -534,6 +545,53 @@ class AppWindow {
   }
 
   /* -------------------------------------------------------------------------- */
+  /*                                 ADDRESS BAR                                */
+  /* -------------------------------------------------------------------------- */
+  addressBarView: BrowserView
+  addressBarOpen = false
+  openAddressBar() {
+    this.addressBarOpen = true
+    this.window.addBrowserView(this.addressBarView)
+    this.window.setTopBrowserView(this.addressBarView)
+    this.addressBarView.setBounds({ ...this.window.getBounds(), y: 0 })
+    this.addressBarView.webContents.focus()
+  }
+  closeAddressBar() {
+    this.addressBarOpen = false
+    this.window.removeBrowserView(this.addressBarView)
+    this.addressBarView.webContents.reload()
+  }
+  toggleAddressBar() {
+    if (this.addressBarOpen) {
+      this.closeAddressBar()
+    } else {
+      this.openAddressBar()
+    }
+  }
+  setupAddressBarHandlers() {
+    ipcMain.handle(AddressBarEvents.Close, () => {
+      this.closeAddressBar()
+    })
+    ipcMain.handle(AddressBarEvents.GetCurrentUrl, () => {
+      return this.getActiveView()?.webContents.getURL()
+    })
+    ipcMain.handle(AddressBarEvents.Go, (_, urlOrSearchQuery) => {
+      this.closeAddressBar()
+      const result = parse(urlOrSearchQuery)
+      if (result.domain && result.isIcann) {
+        const url = urlOrSearchQuery.startsWith('http')
+          ? urlOrSearchQuery
+          : 'http://' + urlOrSearchQuery
+        this.getActiveView()?.webContents.loadURL(url)
+      } else {
+        const searchQuery = encodeURIComponent(urlOrSearchQuery)
+        const googleSearchUrl = `https://www.google.com/search?q=${searchQuery}`
+        this.getActiveView()?.webContents.loadURL(googleSearchUrl)
+      }
+    })
+  }
+
+  /* -------------------------------------------------------------------------- */
   /*                                   SIDEBAR                                  */
   /* -------------------------------------------------------------------------- */
   emitSidebarEvent(channel: MainProcessEmittedEvents, ...args: any[]) {
@@ -595,6 +653,7 @@ class AppWindow {
     this.setupSidebarHandlers()
     this.setupTabHandlers()
     this.setupFindInPageHandlers()
+    this.setupAddressBarHandlers()
   }
 }
 
