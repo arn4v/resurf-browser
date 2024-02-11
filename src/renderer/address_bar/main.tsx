@@ -26,7 +26,6 @@ function App() {
   useDidMount(async () => {
     const url = await ipcRenderer.invoke(AddressBarEvents.GetCurrentUrl)
     setQuery(url)
-
     await waitOneTick()
     inputRef.current?.focus()
     inputRef.current?.select()

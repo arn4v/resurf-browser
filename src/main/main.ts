@@ -1,8 +1,9 @@
+import { ElectronBlocker, fullLists } from '@cliqz/adblocker-electron'
 import { createId } from '@paralleldrive/cuid2'
-import { parse } from 'tldts'
 import { BrowserView, BrowserWindow, app, ipcMain, screen } from 'electron'
 import contextMenu from 'electron-context-menu'
 import Store from 'electron-store'
+import { promises as fs } from 'node:fs'
 import path from 'path'
 import {
   AddressBarEvents,
@@ -11,10 +12,10 @@ import {
   MainProcessEmittedEvents,
 } from 'src/shared/ipc_events'
 import { Tab, TabsMap } from 'src/shared/tabs'
+import { parse } from 'tldts'
 import { FIND_IN_PAGE_HEIGHT, FIND_IN_PAGE_WIDTH } from '~/shared/constants'
 import { KeyboardShortcuts } from '../shared/keyboard_shortcuts'
 import { ShortcutManager } from './shortcut_manager'
-import { z } from 'zod'
 
 export type Brand<Name extends string, T> = T & { __brand: Name }
 
@@ -45,9 +46,9 @@ type StoredPreferences = {
   sidebarWidth: number
   tabs: TabsMap
   lastActiveTab: string | null
+  adblockEnabled: boolean
 }
-const preferencesStore = new Store<StoredPreferences>()
-preferencesStore.clear()
+const preferencesStore = new Store<StoredPreferences>({})
 
 function getInternalViewPath(view: string) {
   if (MAIN_WINDOW_VITE_DEV_SERVER_URL) {
@@ -56,8 +57,6 @@ function getInternalViewPath(view: string) {
     return path.join(__dirname, `../renderer/${MAIN_WINDOW_VITE_NAME}/${view}/index.html`)
   }
 }
-
-const isUrl = (url: string) => z.string().url().safeParse(url).success
 
 class BidiMap<K, V> {
   private keyToValue = new Map<K, V>()
@@ -101,6 +100,7 @@ class AppWindow {
   tabs = new Map<string, Tab>()
   activeTab: string | null = null
   shortcutManager: ShortcutManager
+  blocker: ElectronBlocker | undefined
 
   constructor() {
     this.window = new BrowserWindow({
@@ -128,17 +128,45 @@ class AppWindow {
     })
     this.setupSidebarView()
 
+    this.addressBarView = this.createBrowserViewForControlInterface('address_bar')
+
     this.shortcutManager = new ShortcutManager(this.window)
     this.registerShortcuts()
     this.setupResizeAndMoveListeners()
     this.setupIpcHandlers()
-    this.restoreTabsOrCreateBlank()
 
-    this.addressBarView = this.createBrowserViewForControlInterface('address_bar')
+    void this.setupAdblocker()
+
+    this.restoreTabsOrCreateBlank()
 
     setInterval(() => {
       this.persistTabs()
     }, 1000)
+  }
+
+  async setupAdblocker() {
+    const adblockEnabled = preferencesStore.get('adblockEnabled')
+    if (adblockEnabled !== false) {
+      const blocker = await ElectronBlocker.fromLists(
+        fetch,
+        fullLists,
+        {
+          enableCompression: true,
+        },
+        {
+          path: 'adblock.bin',
+          read: fs.readFile,
+          write: fs.writeFile,
+        },
+      )
+      this.blocker = blocker
+    }
+  }
+
+  disableAdblockerForThisSession() {
+    for (const [_, view] of this.tabToBrowserView) {
+      this.blocker?.disableBlockingInSession(view.webContents.session)
+    }
   }
 
   restoreTabsOrCreateBlank() {
@@ -220,7 +248,7 @@ class AppWindow {
   }
 
   createWebview(tabId: string, url: string) {
-    const tabView = new BrowserView({
+    const view = new BrowserView({
       webPreferences: {
         nodeIntegration: false,
         devTools: true,
@@ -232,16 +260,16 @@ class AppWindow {
       },
     })
 
-    tabView.setAutoResize({
+    view.setAutoResize({
       width: true,
       height: true,
       horizontal: true,
       vertical: true,
     })
-    tabView.setBounds(this.getWebviewBounds())
+    view.setBounds(this.getWebviewBounds())
 
     contextMenu({
-      window: tabView,
+      window: view,
       showSelectAll: true,
       showCopyImage: true,
       showCopyImageAddress: true,
@@ -250,22 +278,23 @@ class AppWindow {
       showInspectElement: true,
     })
 
-    tabView.webContents.loadURL(url ?? 'about:blank')
-    tabView.webContents.on('page-favicon-updated', (_, favicons) => {
+    view.webContents.loadURL(url ?? 'about:blank')
+    view.webContents.on('page-favicon-updated', (_, favicons) => {
       if (favicons[0]) {
         this.updateTabConfig(tabId, {
           favicon: favicons[0],
         })
       }
     })
-    tabView.webContents.on('page-title-updated', (_, title) => {
+    view.webContents.on('page-title-updated', (_, title) => {
       this.updateTabConfig(tabId, {
         title,
       })
     })
-    tabView.webContents.setWindowOpenHandler(({ disposition, url }) => {
+    view.webContents.setWindowOpenHandler(({ disposition, url }) => {
+      this.newTab(url, false, tabId)
+      return { action: 'deny' }
       if (disposition === 'background-tab') {
-        this.newTab(url, false, tabId)
         return {
           action: 'deny',
         }
@@ -276,7 +305,7 @@ class AppWindow {
       }
     })
 
-    return tabView
+    return view
   }
 
   createBrowserViewForControlInterface(name: string) {
@@ -436,6 +465,7 @@ class AppWindow {
       parent,
     }
     const view = this.createWebview(tabId, url)
+    this.blocker?.enableBlockingInSession(view.webContents.session)
     this.tabToBrowserView.set(tabId, view)
     this.tabToWebContentsId.set(tabId, view.webContents.id)
     this.tabs.set(tabId, tab)
@@ -600,7 +630,7 @@ class AppWindow {
 
   setupSidebarView() {
     const controlView = this.sidebarView
-    controlView.setBackgroundColor('hsla(0, 0%, 100%, 0.0)')
+    controlView.setBackgroundColor('hsla(0, 0%, 100%, 100.0)')
     controlView.setBounds({
       ...this.window.getBounds(),
       y: 0,
