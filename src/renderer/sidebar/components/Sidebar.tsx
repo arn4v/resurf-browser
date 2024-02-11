@@ -23,7 +23,7 @@ export function Sidebar() {
   })
 
   return (
-    <div className='h-full w-full shadow-inner bg-neutral-800 text-white'>
+    <div className='h-full w-full shadow-inner bg-neutral-800 text-white overflow-y-auto overflow-x-hidden scrollbar-track-zinc-700 scrollbar-thumb-zinc-500 scrollbar-thin pb-8'>
       <div
         className='h-8 w-full'
         style={{
@@ -44,11 +44,11 @@ function Tabs({ tabs: tabsMap, activeTab }: { tabs: TabsMap; activeTab: Tab['id'
   }, [tabsMap])
 
   return (
-    <ul className='pl-3 pr-1.5 w-full flex flex-col gap-1 '>
+    <div className='pl-3 pr-1.5 w-full flex flex-col gap-1 '>
       {topLevelTabs.map((parent) => {
         return <TabItem key={parent.id} tab={parent} tabs={tabs} activeTab={activeTab} />
       })}
-    </ul>
+    </div>
   )
 }
 
@@ -64,10 +64,10 @@ function TabItem({ tab, tabs, activeTab }: { tabs: Tab[]; tab: Tab; activeTab: T
   )
 
   return (
-    <li className='w-full' key={tab.id}>
+    <div className='w-full overflow-x-clip' key={tab.id}>
       <div
         className={cn(
-          'flex items-center justify-between w-full rounded-lg group select-none gap-2',
+          'flex items-center justify-start w-full rounded-lg group select-none gap-2 overflow-clip h-8',
           tab.id === activeTab
             ? 'bg-neutral-700 cursor-default'
             : 'transition hover:bg-neutral-700',
@@ -76,36 +76,38 @@ function TabItem({ tab, tabs, activeTab }: { tabs: Tab[]; tab: Tab; activeTab: T
           sendIpcMessage(ControlEmittedEvents.Tabs_UpdateActiveTab, tab.id)
         }}
       >
-        <div className='items-center flex pl-2 gap-1 w-full flex-grow'>
-          <div
-            className={cn('h-full grid place-items-center', children.length && 'hover:bg-gray-600')}
-            onClick={() => {
-              if (children.length) setExpanded((prev) => !prev)
-            }}
-          >
-            {children.length ? (
-              expanded ? (
-                <ChevronUpIcon className='h-3 w-3' />
-              ) : (
-                <ChevronDownIcon className='h-3 w-3' />
-              )
+        <div
+          className={cn(
+            'h-8 w-8 grid place-items-center rounded-lg',
+            children.length && 'hover:bg-gray-600',
+          )}
+          onClick={(e) => {
+            e.stopPropagation()
+            if (children.length) setExpanded((prev) => !prev)
+          }}
+        >
+          {children.length ? (
+            expanded ? (
+              <ChevronUpIcon className='h-3 w-3' />
             ) : (
-              <DotIcon className='h-3 w-3' />
-            )}
-          </div>
-          <span
-            className='inline-flex gap-2 py-1 items-center text-sm truncate flex-1 min-w-0 max-w-[30ch]'
-            title={tab.title}
-          >
-            {tab.favicon ? (
-              <img src={tab.favicon} alt={`${tab.title} Favicon`} className='w-4 h-4' />
-            ) : (
-              <GlobeIcon className='h-4 w-4' />
-            )}
-            <p className='truncate max-w-full'> {tab.title} </p>
-          </span>
+              <ChevronDownIcon className='h-3 w-3' />
+            )
+          ) : (
+            <DotIcon className='h-3 w-3' />
+          )}
         </div>
-        <div className='invisible group-hover:visible flex items-center justify-center gap-2 pr-3 shrink-0'>
+        <div
+          className='inline-flex gap-2 py-1 items-center text-sm flex-1 min-w-0 truncate'
+          title={tab.title}
+        >
+          {tab.favicon ? (
+            <img src={tab.favicon} alt={`${tab.title} Favicon`} className='w-4 h-4' />
+          ) : (
+            <GlobeIcon className='h-4 w-4' />
+          )}
+          <p className='truncate max-w-full'> {tab.title} </p>
+        </div>
+        <div className='invisible ml-auto group-hover:visible flex items-center justify-center gap-2 pr-3 shrink-0 trunca'>
           <div
             className='rounded hover:bg-zinc-600 p-1 cursor-pointer grid place-items-center'
             onClick={(e) => {
@@ -119,12 +121,12 @@ function TabItem({ tab, tabs, activeTab }: { tabs: Tab[]; tab: Tab; activeTab: T
         </div>
       </div>
       {expanded && (
-        <ul className='ml-3 w-full flex flex-col gap-1'>
+        <div className='ml-3 w-full flex flex-col gap-1 box-border'>
           {children.map((parent) => {
             return <TabItem key={parent.id} activeTab={activeTab} tab={parent} tabs={tabs} />
           })}
-        </ul>
+        </div>
       )}
-    </li>
+    </div>
   )
 }

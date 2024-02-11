@@ -27,3 +27,9 @@ export enum AddressBarEvents {
   Close = 'close',
   GetCurrentUrl = 'get-current-url',
 }
+
+export enum SettingsDialogEvents {
+  GetAdblockValue = 'get-adblock-value',
+  SetAdblockValue = 'set-adblock-value',
+  Close = 'close-settings-dialog',
+}

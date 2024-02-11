@@ -48,7 +48,7 @@ function App() {
           }}
           onKeyDown={(e) => {
             if (e.key === 'Enter') {
-              ipcRenderer.invoke(FindInPageEvents.UpdateQuery, query, true, true)
+              move(true)
             }
           }}
         />

@@ -10,6 +10,7 @@ import {
   ControlEmittedEvents,
   FindInPageEvents,
   MainProcessEmittedEvents,
+  SettingsDialogEvents,
 } from 'src/shared/ipc_events'
 import { Tab, TabsMap } from 'src/shared/tabs'
 import { parse } from 'tldts'
@@ -136,6 +137,7 @@ class AppWindow {
     this.setupIpcHandlers()
 
     void this.setupAdblocker()
+    this.settingsView = this.createBrowserViewForControlInterface('settings')
 
     this.restoreTabsOrCreateBlank()
 
@@ -144,34 +146,9 @@ class AppWindow {
     }, 1000)
   }
 
-  async setupAdblocker() {
-    const adblockEnabled = preferencesStore.get('adblockEnabled')
-    if (adblockEnabled !== false) {
-      const blocker = await ElectronBlocker.fromLists(
-        fetch,
-        fullLists,
-        {
-          enableCompression: true,
-        },
-        {
-          path: 'adblock.bin',
-          read: fs.readFile,
-          write: fs.writeFile,
-        },
-      )
-      this.blocker = blocker
-    }
-  }
-
-  disableAdblockerForThisSession() {
-    for (const [_, view] of this.tabToBrowserView) {
-      this.blocker?.disableBlockingInSession(view.webContents.session)
-    }
-  }
-
   restoreTabsOrCreateBlank() {
     const savedTabs = preferencesStore.get('tabs')
-    if (savedTabs && Object.entries(savedTabs).length >= 1 && !Env.deploy.isDevelopment) {
+    if (savedTabs && Object.entries(savedTabs).length >= 1) {
       const tabsArr = Object.entries(savedTabs)
       const tabs = new Map<string, Tab>(tabsArr)
       this.tabs = tabs
@@ -219,11 +196,57 @@ class AppWindow {
     this.shortcutManager.registerShortcut(KeyboardShortcuts.OpenAddressBar, () => {
       this.toggleAddressBar()
     })
+    this.shortcutManager.registerShortcut(KeyboardShortcuts.OpenSettings, () => {
+      this.toggleSettings()
+    })
   }
 
   destroy() {
     this.window.destroy()
     this.shortcutManager.unregisterShortcuts()
+  }
+
+  /* -------------------------------------------------------------------------- */
+  /*                                   ADBLOCK                                  */
+  /* -------------------------------------------------------------------------- */
+  get adblockEnabled(): boolean {
+    return !!preferencesStore.get('adblockEnabled')
+  }
+
+  async setupAdblocker() {
+    if (this.blocker) return null
+    const adblockEnabled = preferencesStore.get('adblockEnabled')
+    if (adblockEnabled !== false) {
+      const blocker = await ElectronBlocker.fromLists(
+        fetch,
+        fullLists,
+        {
+          enableCompression: true,
+        },
+        {
+          path: 'adblock.bin',
+          read: fs.readFile,
+          write: fs.writeFile,
+        },
+      )
+      this.blocker = blocker
+      return this.blocker as ElectronBlocker
+    }
+  }
+
+  async enableAdblock() {
+    const blocker = await this.setupAdblocker()
+    preferencesStore.set('adblockEnabled', true)
+    for (const [_, view] of this.tabToBrowserView) {
+      blocker?.enableBlockingInSession(view.webContents.session)
+    }
+  }
+
+  disableAdblock() {
+    for (const [_, view] of this.tabToBrowserView) {
+      this.blocker?.disableBlockingInSession(view.webContents.session)
+    }
+    preferencesStore.set('adblockEnabled', false)
   }
 
   /* -------------------------------------------------------------------------- */
@@ -279,10 +302,17 @@ class AppWindow {
     })
 
     view.webContents.loadURL(url ?? 'about:blank')
-    view.webContents.on('page-favicon-updated', (_, favicons) => {
+    view.webContents.on('page-favicon-updated', async (_, favicons) => {
       if (favicons[0]) {
+        const exists = await fetch(favicons[0])
+        if (exists.ok) {
+          this.updateTabConfig(tabId, {
+            favicon: favicons[0],
+          })
+        }
+      } else {
         this.updateTabConfig(tabId, {
-          favicon: favicons[0],
+          favicon: undefined,
         })
       }
     })
@@ -291,10 +321,14 @@ class AppWindow {
         title,
       })
     })
+    view.webContents.on('did-navigate-in-page', (_, url) => {
+      this.updateTabConfig(tabId, {
+        url: view.webContents.getURL(),
+      })
+    })
     view.webContents.setWindowOpenHandler(({ disposition, url }) => {
-      this.newTab(url, false, tabId)
-      return { action: 'deny' }
-      if (disposition === 'background-tab') {
+      if (disposition === 'foreground-tab' || disposition === 'background-tab') {
+        this.newTab(url, false, tabId)
         return {
           action: 'deny',
         }
@@ -318,6 +352,7 @@ class AppWindow {
       },
     })
     this.loadInternalViewURLOrFile(view, getInternalViewPath(name))
+    // view.setBackgroundColor('hsla(0,0,0%,100.0)')
     return view
   }
 
@@ -441,6 +476,7 @@ class AppWindow {
       Object.fromEntries(this.tabs.entries()),
     )
     this.emitSidebarEvent(MainProcessEmittedEvents.TabsUpdateActiveTab, this.activeTab)
+    this.persistTabs()
   }
 
   persistTabs() {
@@ -542,7 +578,6 @@ class AppWindow {
     if (query === '') {
       this.stopFindInPage(tabId)
     } else {
-      webview.webContents.stopFindInPage('clearSelection')
       webview.webContents.findInPage(query, {
         matchCase: false,
         findNext,
@@ -584,6 +619,7 @@ class AppWindow {
     this.window.addBrowserView(this.addressBarView)
     this.window.setTopBrowserView(this.addressBarView)
     this.addressBarView.setBounds({ ...this.window.getBounds(), y: 0 })
+    this.addressBarView.webContents.reload()
     this.addressBarView.webContents.focus()
   }
   closeAddressBar() {
@@ -603,20 +639,65 @@ class AppWindow {
       this.closeAddressBar()
     })
     ipcMain.handle(AddressBarEvents.GetCurrentUrl, () => {
-      return this.getActiveView()?.webContents.getURL()
+      return this.activeTab ? this.tabs.get(this.activeTab)?.url : ''
     })
     ipcMain.handle(AddressBarEvents.Go, (_, urlOrSearchQuery) => {
       this.closeAddressBar()
+      if (!this.activeTab) return
       const result = parse(urlOrSearchQuery)
+      let url
       if (result.domain && result.isIcann) {
-        const url = urlOrSearchQuery.startsWith('http')
-          ? urlOrSearchQuery
-          : 'http://' + urlOrSearchQuery
+        url = urlOrSearchQuery.startsWith('http') ? urlOrSearchQuery : 'http://' + urlOrSearchQuery
         this.getActiveView()?.webContents.loadURL(url)
       } else {
         const searchQuery = encodeURIComponent(urlOrSearchQuery)
-        const googleSearchUrl = `https://www.google.com/search?q=${searchQuery}`
-        this.getActiveView()?.webContents.loadURL(googleSearchUrl)
+        url = `https://www.google.com/search?q=${searchQuery}`
+        this.getActiveView()?.webContents.loadURL(url)
+      }
+      this.updateTabConfig(this.activeTab, { url })
+    })
+  }
+
+  /* -------------------------------------------------------------------------- */
+  /*                                  SETTINGS                                  */
+  /* -------------------------------------------------------------------------- */
+  settingsView: BrowserView
+  settingsOpen = false
+
+  toggleSettings() {
+    if (!this.settingsOpen) {
+      this.openSettings()
+    } else {
+      this.closeSettings()
+    }
+  }
+
+  openSettings() {
+    this.window.addBrowserView(this.settingsView)
+    this.window.setTopBrowserView(this.settingsView)
+    this.settingsView.setBounds({
+      ...this.window.getBounds(),
+      y: 0,
+    })
+  }
+
+  closeSettings() {
+    this.window.removeBrowserView(this.settingsView)
+    this.settingsView.webContents.reload()
+  }
+
+  setupSettingsHandlers() {
+    ipcMain.handle(SettingsDialogEvents.Close, () => {
+      this.closeSettings()
+    })
+    ipcMain.handle(SettingsDialogEvents.GetAdblockValue, () => {
+      return this.adblockEnabled
+    })
+    ipcMain.handle(SettingsDialogEvents.SetAdblockValue, (_, value) => {
+      if (value) {
+        this.enableAdblock()
+      } else {
+        this.disableAdblock()
       }
     })
   }
@@ -631,11 +712,13 @@ class AppWindow {
   setupSidebarView() {
     const controlView = this.sidebarView
     controlView.setBackgroundColor('hsla(0, 0%, 100%, 100.0)')
+    console.log(this.window.getBounds().height)
     controlView.setBounds({
       ...this.window.getBounds(),
+      height: this.window.getBounds().height,
       y: 0,
     })
-    controlView.setAutoResize({ width: true, height: true })
+    controlView.setAutoResize({ width: true, height: true, x: true, y: true })
     // and load the index.html of the app.
 
     this.loadInternalViewURLOrFile(controlView, getInternalViewPath('sidebar'))
@@ -684,6 +767,7 @@ class AppWindow {
     this.setupTabHandlers()
     this.setupFindInPageHandlers()
     this.setupAddressBarHandlers()
+    this.setupSettingsHandlers()
   }
 }
 

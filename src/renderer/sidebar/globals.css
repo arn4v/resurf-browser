@@ -2,6 +2,10 @@
 @tailwind components;
 @tailwind utilities;
 
+:root {
+  scrollbar-gutter: stable;
+}
+
 html,
 body,
 #root {
