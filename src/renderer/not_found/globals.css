@@ -2,13 +2,9 @@
 @tailwind components;
 @tailwind utilities;
 
-:root {
-  scrollbar-gutter: stable;
-}
-
-/* html,
+html,
 body,
 #root {
   height: 100%;
   width: 100%;
-} */
+}

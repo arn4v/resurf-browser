@@ -23,7 +23,7 @@ export function Sidebar() {
   })
 
   return (
-    <div className='h-full w-full shadow-inner bg-neutral-800 text-white overflow-y-auto overflow-x-hidden scrollbar-track-zinc-700 scrollbar-thumb-zinc-500 scrollbar-thin pb-8'>
+    <div className='h-full w-full shadow-inner bg-neutral-800 text-white overflow-y-auto overflow-x-hidden scrollbar-track-zinc-700 scrollbar-thumb-zinc-500 scrollbar-thin pb-8 border-r border-neutral-700'>
       <div
         className='h-8 w-full'
         style={{
@@ -44,15 +44,25 @@ function Tabs({ tabs: tabsMap, activeTab }: { tabs: TabsMap; activeTab: Tab['id'
   }, [tabsMap])
 
   return (
-    <div className='pl-3 pr-1.5 w-full flex flex-col gap-1 '>
+    <ul className='max-w-[calc(100%-8px)] flex flex-col gap-1 overflow-x-clip pl-3 scrollbar-thin scrollbar-thumb-zinc-600 scrollbar-track-zinc-800'>
       {topLevelTabs.map((parent) => {
         return <TabItem key={parent.id} tab={parent} tabs={tabs} activeTab={activeTab} />
       })}
-    </div>
+    </ul>
   )
 }
 
-function TabItem({ tab, tabs, activeTab }: { tabs: Tab[]; tab: Tab; activeTab: Tab['id'] | null }) {
+function TabItem({
+  tab,
+  tabs,
+  activeTab,
+  depth = 0,
+}: {
+  tabs: Tab[]
+  tab: Tab
+  activeTab: Tab['id'] | null
+  depth?: number
+}) {
   const [expanded, setExpanded] = React.useState(true)
   const children = React.useMemo(
     () =>
@@ -64,10 +74,17 @@ function TabItem({ tab, tabs, activeTab }: { tabs: Tab[]; tab: Tab; activeTab: T
   )
 
   return (
-    <div className='w-full overflow-x-clip' key={tab.id}>
+    <li
+      data-depth={depth}
+      className='max-w-full'
+      key={tab.id}
+      style={{
+        width: depth ? `calc(100% - ${depth * 12}px)` : undefined,
+      }}
+    >
       <div
         className={cn(
-          'flex items-center justify-start w-full rounded-lg group select-none gap-2 overflow-clip h-8',
+          'flex items-center justify-start w-full rounded-lg group select-none h-8',
           tab.id === activeTab
             ? 'bg-neutral-700 cursor-default'
             : 'transition hover:bg-neutral-700',
@@ -78,7 +95,7 @@ function TabItem({ tab, tabs, activeTab }: { tabs: Tab[]; tab: Tab; activeTab: T
       >
         <div
           className={cn(
-            'h-8 w-8 grid place-items-center rounded-lg',
+            'h-8 w-8 grid place-items-center rounded-lg shrink-0',
             children.length && 'hover:bg-gray-600',
           )}
           onClick={(e) => {
@@ -97,17 +114,17 @@ function TabItem({ tab, tabs, activeTab }: { tabs: Tab[]; tab: Tab; activeTab: T
           )}
         </div>
         <div
-          className='inline-flex gap-2 py-1 items-center text-sm flex-1 min-w-0 truncate'
+          className='flex gap-2 py-1 items-center text-sm grow min-w-0 truncate'
           title={tab.title}
         >
           {tab.favicon ? (
-            <img src={tab.favicon} alt={`${tab.title} Favicon`} className='w-4 h-4' />
+            <img src={tab.favicon} alt={`${tab.title} Favicon`} className='w-3.5 h-3.5 shrink-0' />
           ) : (
-            <GlobeIcon className='h-4 w-4' />
+            <GlobeIcon className='h-3.5 w-3.5 text-white shrink-0' />
           )}
           <p className='truncate max-w-full'> {tab.title} </p>
         </div>
-        <div className='invisible ml-auto group-hover:visible flex items-center justify-center gap-2 pr-3 shrink-0 trunca'>
+        <div className='invisible ml-auto group-hover:visible flex items-center justify-center gap-2 pr-3'>
           <div
             className='rounded hover:bg-zinc-600 p-1 cursor-pointer grid place-items-center'
             onClick={(e) => {
@@ -121,12 +138,20 @@ function TabItem({ tab, tabs, activeTab }: { tabs: Tab[]; tab: Tab; activeTab: T
         </div>
       </div>
       {expanded && (
-        <div className='ml-3 w-full flex flex-col gap-1 box-border'>
+        <ul className='ml-3 w-full flex flex-col gap-1 box-border'>
           {children.map((parent) => {
-            return <TabItem key={parent.id} activeTab={activeTab} tab={parent} tabs={tabs} />
+            return (
+              <TabItem
+                key={parent.id}
+                activeTab={activeTab}
+                tab={parent}
+                tabs={tabs}
+                depth={depth + 1}
+              />
+            )
           })}
-        </div>
+        </ul>
       )}
-    </div>
+    </li>
   )
 }

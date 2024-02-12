@@ -14,6 +14,7 @@ export enum MainProcessEmittedEvents {
   FindInPage_Update = 'find-in-page__update',
   FindInPage_SetInitial = 'find-in-page__set-initial',
   FindInPage_StartHiding = 'find-in-page_start-hiding',
+  NotFound_SetReason = 'not-found_set-reason',
 }
 
 export enum FindInPageEvents {
@@ -33,3 +34,5 @@ export enum SettingsDialogEvents {
   SetAdblockValue = 'set-adblock-value',
   Close = 'close-settings-dialog',
 }
+
+export enum NotFoundEvents {}

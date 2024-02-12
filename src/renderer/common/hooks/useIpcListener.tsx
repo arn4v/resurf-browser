@@ -6,5 +6,5 @@ import { MainProcessEmittedEvents } from '~/shared/ipc_events'
 export function useIpcListener(channel: MainProcessEmittedEvents, listener: RendererListener) {
   useEffect(() => {
     return registerIpcListener(channel, listener)
-  }, [])
+  }, [channel, listener])
 }

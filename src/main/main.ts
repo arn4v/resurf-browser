@@ -3,6 +3,7 @@ import { createId } from '@paralleldrive/cuid2'
 import { BrowserView, BrowserWindow, app, ipcMain, screen } from 'electron'
 import contextMenu from 'electron-context-menu'
 import Store from 'electron-store'
+import isOnline from 'is-online'
 import { promises as fs } from 'node:fs'
 import path from 'path'
 import {
@@ -43,7 +44,7 @@ if (require('electron-squirrel-startup')) {
 const preloadPath = path.resolve(__dirname, './preload.js')
 
 type StoredPreferences = {
-  windowBounds: ReturnType<typeof screen.getPrimaryDisplay>['bounds']
+  windowBounds: Electron.Rectangle
   sidebarWidth: number
   tabs: TabsMap
   lastActiveTab: string | null
@@ -254,18 +255,22 @@ class AppWindow {
   /* -------------------------------------------------------------------------- */
   getWindowBounds() {
     const windowBounds = preferencesStore.get('windowBounds')
-    const bounds = windowBounds ?? screen.getPrimaryDisplay().workAreaSize
+    const screenBounds = screen.getPrimaryDisplay().workAreaSize
+    const bounds: Electron.Rectangle = {
+      height: Math.min(windowBounds.height, screenBounds.height),
+      width: Math.min(windowBounds.width, screenBounds.width),
+      x: Math.max(windowBounds.x, 0),
+      y: Math.max(windowBounds.y, 0),
+    }
     return bounds
   }
 
   getWebviewBounds() {
     const winBounds = this.window.getBounds()
     return {
-      width: normalizeNumber(
-        winBounds.width - winBounds.width * (this.getSidebarWidthOrDefault() / 100),
-      ),
+      width: normalizeNumber(winBounds.width - this.getSidebarWidth()) + 5,
       height: winBounds.height,
-      x: normalizeNumber(winBounds.width * (this.getSidebarWidthOrDefault() / 100)),
+      x: normalizeNumber(this.getSidebarWidth()),
       y: 0,
     }
   }
@@ -290,6 +295,7 @@ class AppWindow {
       vertical: true,
     })
     view.setBounds(this.getWebviewBounds())
+    view.setBackgroundColor('#FFFFFF')
 
     contextMenu({
       window: view,
@@ -338,6 +344,25 @@ class AppWindow {
         action: 'allow',
       }
     })
+    view.webContents.on(
+      'did-fail-load',
+      async (_, errorCode, errorDescription, validatedURL, isMainFrame) => {
+        console.log({ isMainFrame, errorCode, errorDescription, validatedURL })
+        if (isMainFrame && errorDescription === 'ERR_CONNECTION_REFUSED') {
+          const notFoundUrl =
+            getInternalViewPath('not_found') +
+            `?reason=${(await isOnline()) ? 'offline' : 'dead-link'}`
+
+          console.log({ notFoundUrl })
+          this.loadInternalViewURLOrFile(view, notFoundUrl)
+
+          this.updateTabConfig(tabId, {
+            title: this.tabs.get(tabId)?.url,
+            favicon: undefined,
+          })
+        }
+      },
+    )
 
     return view
   }
@@ -705,6 +730,11 @@ class AppWindow {
   /* -------------------------------------------------------------------------- */
   /*                                   SIDEBAR                                  */
   /* -------------------------------------------------------------------------- */
+
+  getSidebarWidth() {
+    return this.window.getBounds().width * (this.getSidebarWidthOrDefault() / 100) + 1
+  }
+
   emitSidebarEvent(channel: MainProcessEmittedEvents, ...args: any[]) {
     this.sidebarView.webContents.send(channel, ...args)
   }
@@ -712,13 +742,12 @@ class AppWindow {
   setupSidebarView() {
     const controlView = this.sidebarView
     controlView.setBackgroundColor('hsla(0, 0%, 100%, 100.0)')
-    console.log(this.window.getBounds().height)
     controlView.setBounds({
       ...this.window.getBounds(),
       height: this.window.getBounds().height,
       y: 0,
     })
-    controlView.setAutoResize({ width: true, height: true, x: true, y: true })
+    controlView.setAutoResize({ width: true, height: true, horizontal: true, vertical: true })
     // and load the index.html of the app.
 
     this.loadInternalViewURLOrFile(controlView, getInternalViewPath('sidebar'))
@@ -754,7 +783,7 @@ class AppWindow {
   setupResizeAndMoveListeners() {
     this.window.on('resize', () => {
       const { width, height, x, y } = this.window.getBounds()
-      this.getActiveView()?.setBounds(this.getWebviewBounds())
+      // this.getActiveView()?.setBounds(this.getWebviewBounds())
       preferencesStore.set('windowBounds', { width, height, x, y })
     })
     this.window.on('move', () => {
