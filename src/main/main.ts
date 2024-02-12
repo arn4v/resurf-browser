@@ -11,6 +11,7 @@ import {
   ControlEmittedEvents,
   FindInPageEvents,
   MainProcessEmittedEvents,
+  NewTabEvents,
   SettingsDialogEvents,
 } from 'src/shared/ipc_events'
 import { Tab, TabsMap } from 'src/shared/tabs'
@@ -18,6 +19,7 @@ import { parse } from 'tldts'
 import { FIND_IN_PAGE_HEIGHT, FIND_IN_PAGE_WIDTH } from '~/shared/constants'
 import { KeyboardShortcuts } from '../shared/keyboard_shortcuts'
 import { ShortcutManager } from './shortcut_manager'
+import { SearchEngine, engineToSearchUrl } from '~/shared/search_engines'
 
 export type Brand<Name extends string, T> = T & { __brand: Name }
 
@@ -44,13 +46,23 @@ if (require('electron-squirrel-startup')) {
 const preloadPath = path.resolve(__dirname, './preload.js')
 
 type StoredPreferences = {
-  windowBounds: Electron.Rectangle
-  sidebarWidth: number
+  window_bounds: Electron.Rectangle | null
+  sidebar_width: number
   tabs: TabsMap
-  lastActiveTab: string | null
-  adblockEnabled: boolean
+  active_tab: string | null
+  adblock_enabled: boolean
+  search_engine: SearchEngine
 }
-const preferencesStore = new Store<StoredPreferences>({})
+const preferencesStore = new Store<StoredPreferences>({
+  defaults: {
+    active_tab: null,
+    tabs: {},
+    adblock_enabled: true,
+    search_engine: SearchEngine.Google,
+    sidebar_width: 20,
+    window_bounds: null,
+  },
+})
 
 function getInternalViewPath(view: string) {
   if (MAIN_WINDOW_VITE_DEV_SERVER_URL) {
@@ -131,6 +143,7 @@ class AppWindow {
     this.setupSidebarView()
 
     this.addressBarView = this.createBrowserViewForControlInterface('address_bar')
+    this.newTabView = this.createBrowserViewForControlInterface('new_tab')
 
     this.shortcutManager = new ShortcutManager(this.window)
     this.registerShortcuts()
@@ -153,7 +166,7 @@ class AppWindow {
       const tabsArr = Object.entries(savedTabs)
       const tabs = new Map<string, Tab>(tabsArr)
       this.tabs = tabs
-      const lastActiveTab = preferencesStore.get('lastActiveTab') || tabsArr[0][0]
+      const lastActiveTab = preferencesStore.get('active_tab') || tabsArr[0][0]
       this.setActiveTab(lastActiveTab)
       this.emitUpdateTabs()
     } else {
@@ -168,7 +181,7 @@ class AppWindow {
 
   registerShortcuts() {
     this.shortcutManager.registerShortcut(KeyboardShortcuts.NewTab, () => {
-      this.newTab('https://bing.com', true)
+      this.openNewTabPopup()
     })
     this.shortcutManager.registerShortcut(KeyboardShortcuts.CloseTab, () => {
       if (this.activeTab) this.closeTab(this.activeTab)
@@ -254,13 +267,16 @@ class AppWindow {
   /*                               WEBVIEW HELPERS                              */
   /* -------------------------------------------------------------------------- */
   getWindowBounds() {
-    const windowBounds = preferencesStore.get('windowBounds')
+    const windowBounds = preferencesStore.get('window_bounds')
     const screenBounds = screen.getPrimaryDisplay().workAreaSize
+    if (!windowBounds) {
+      return screenBounds
+    }
     const bounds: Electron.Rectangle = {
-      height: Math.min(windowBounds.height, screenBounds.height),
-      width: Math.min(windowBounds.width, screenBounds.width),
-      x: Math.max(windowBounds.x, 0),
-      y: Math.max(windowBounds.y, 0),
+      height: Math.min(windowBounds?.height, screenBounds.height),
+      width: Math.min(windowBounds?.width, screenBounds.width),
+      x: Math.max(windowBounds?.x, 0),
+      y: Math.max(windowBounds?.y, 0),
     }
     return bounds
   }
@@ -347,7 +363,6 @@ class AppWindow {
     view.webContents.on(
       'did-fail-load',
       async (_, errorCode, errorDescription, validatedURL, isMainFrame) => {
-        console.log({ isMainFrame, errorCode, errorDescription, validatedURL })
         if (isMainFrame && errorDescription === 'ERR_CONNECTION_REFUSED') {
           const notFoundUrl =
             getInternalViewPath('not_found') +
@@ -635,6 +650,64 @@ class AppWindow {
   }
 
   /* -------------------------------------------------------------------------- */
+  /*                               NEW TAB DIALOG                               */
+  /* -------------------------------------------------------------------------- */
+  newTabView: BrowserView
+  newTabOpen = false
+  openNewTabPopup() {
+    this.newTabOpen = true
+    this.window.addBrowserView(this.newTabView)
+    this.window.setTopBrowserView(this.newTabView)
+    this.newTabView.setBounds({ ...this.window.getBounds(), y: 0 })
+    this.newTabView.webContents.reload()
+    this.newTabView.webContents.focus()
+  }
+  closeNewTabPopup() {
+    this.newTabOpen = false
+    this.window.removeBrowserView(this.newTabView)
+    this.newTabView.webContents.reload()
+  }
+  toggleNewTabPopup() {
+    if (this.newTabOpen) {
+      this.closeNewTabPopup()
+    } else {
+      this.openNewTabPopup()
+    }
+  }
+  setupNewTabHandlers() {
+    ipcMain.handle(NewTabEvents.Close, () => {
+      this.closeNewTabPopup()
+    })
+    ipcMain.handle(NewTabEvents.SearchOpenTabs, () => {
+      return []
+    })
+    // ipcMain.handle(
+    //   NewTabEvents.Go,
+    //   (
+    //     _,
+    //     {}: {
+    //       urlOrQuery: string
+    //     },
+    //   ) => {
+    //     this.closeNewTab()
+    //     if (!this.activeTab) return
+    //     const result = parse(urlOrSearchQuery)
+    //     let url
+    //     if (result.domain && result.isIcann) {
+    //       url = urlOrSearchQuery.startsWith('http')
+    //         ? urlOrSearchQuery
+    //         : 'http://' + urlOrSearchQuery
+    //       this.getActiveView()?.webContents.loadURL(url)
+    //     } else {
+    //       const searchQuery = encodeURIComponent(urlOrSearchQuery)
+    //       url = `https://www.google.com/search?q=${searchQuery}`
+    //       this.getActiveView()?.webContents.loadURL(url)
+    //     }
+    //     this.updateTabConfig(this.activeTab, { url })
+    //   },
+    // )
+  }
+  /* -------------------------------------------------------------------------- */
   /*                                 ADDRESS BAR                                */
   /* -------------------------------------------------------------------------- */
   addressBarView: BrowserView
@@ -676,7 +749,7 @@ class AppWindow {
         this.getActiveView()?.webContents.loadURL(url)
       } else {
         const searchQuery = encodeURIComponent(urlOrSearchQuery)
-        url = `https://www.google.com/search?q=${searchQuery}`
+        url = `${engineToSearchUrl[preferencesStore.get('search_engine')]}${searchQuery}`
         this.getActiveView()?.webContents.loadURL(url)
       }
       this.updateTabConfig(this.activeTab, { url })
@@ -725,6 +798,13 @@ class AppWindow {
         this.disableAdblock()
       }
     })
+    ipcMain.handle(SettingsDialogEvents.SetDefaultSearchEngine, (_, value: SearchEngine) => {
+      console.log(value)
+      preferencesStore.set('search_engine', value)
+    })
+    ipcMain.handle(SettingsDialogEvents.GetDefaultSearchEngine, () => {
+      return preferencesStore.get('search_engine')
+    })
   }
 
   /* -------------------------------------------------------------------------- */
@@ -759,17 +839,17 @@ class AppWindow {
   }
 
   getSidebarWidthOrDefault() {
-    return preferencesStore.get('sidebarWidth') || 15
+    return preferencesStore.get('sidebar_width') || 15
   }
 
   setupSidebarHandlers() {
     // Sidebar
     ipcMain.on(ControlEmittedEvents.SidebarReady, (event) => {
-      const storedWidth = preferencesStore.get('sidebarWidth')
+      const storedWidth = preferencesStore.get('sidebar_width')
       event.reply(MainProcessEmittedEvents.SidebarSetInitialWidth, storedWidth || 15)
     })
     ipcMain.on(ControlEmittedEvents.SidebarUpdateWidth, (_, sidebarWidth: number) => {
-      preferencesStore.set('sidebarWidth', sidebarWidth)
+      preferencesStore.set('sidebar_width', sidebarWidth)
       this.getActiveView()?.setBounds(this.getWebviewBounds())
       for (const key in this.tabToBrowserView.keys()) {
         this.tabToBrowserView.get(key)?.setBounds(this.getWebviewBounds())
@@ -797,6 +877,7 @@ class AppWindow {
     this.setupFindInPageHandlers()
     this.setupAddressBarHandlers()
     this.setupSettingsHandlers()
+    this.setupNewTabHandlers()
   }
 }
 

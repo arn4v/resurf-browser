@@ -1,20 +1,31 @@
 import { createRoot } from 'react-dom/client'
 import '../common/globals.css'
 import { SettingsDialogEvents } from '~/shared/ipc_events'
-import { XIcon } from 'lucide-react'
+import { Settings, XIcon } from 'lucide-react'
 import { Switch } from '~/common/ui/switch'
 import { useDidMount } from 'rooks'
 import * as React from 'react'
+import { Select } from '~/common/ui/select'
+import { SearchEngine, engineToTitle } from '~/shared/search_engines'
 
 const container = document.getElementById('root') as HTMLDivElement
 const root = createRoot(container)
 
 function App() {
   const [adblockEnabled, setAdblockEnabled] = React.useState(false)
+  const [searchEngine, setSearchEngine] = React.useState<SearchEngine | undefined>(undefined)
 
   useDidMount(async () => {
-    const adblockEnabled = await ipcRenderer.invoke(SettingsDialogEvents.GetAdblockValue)
-    setAdblockEnabled(adblockEnabled)
+    await Promise.all([
+      (async () => {
+        const adblockEnabled = await ipcRenderer.invoke(SettingsDialogEvents.GetAdblockValue)
+        setAdblockEnabled(adblockEnabled)
+      })(),
+      (async () => {
+        const searchEngine = await ipcRenderer.invoke(SettingsDialogEvents.GetDefaultSearchEngine)
+        setSearchEngine(searchEngine)
+      })(),
+    ])
   })
 
   function handleClose() {
@@ -48,6 +59,33 @@ function App() {
               })
             }}
           />
+        </div>
+        <div className='flex items-start justify-between w-full py-2'>
+          <div className='flex flex-col gap-2'>
+            <span className='text-md font-medium'>Search Engine</span>
+            <span className='text-zinc-400 text-sm'>Change your default search engine</span>
+          </div>
+          <Select.Root
+            onValueChange={(v: SearchEngine) => {
+              setSearchEngine(v)
+              ipcRenderer.invoke(SettingsDialogEvents.SetDefaultSearchEngine, v)
+            }}
+            value={searchEngine}
+            defaultValue={SearchEngine.Google}
+          >
+            <Select.Trigger className='w-[180px]'>
+              <Select.Value placeholder='Search Engine' className='dark:bg-zinc-900' />
+            </Select.Trigger>
+            <Select.Content>
+              {Object.values(SearchEngine).map((v) => {
+                return (
+                  <Select.Item key={v} value={v}>
+                    {engineToTitle[v]}
+                  </Select.Item>
+                )
+              })}
+            </Select.Content>
+          </Select.Root>
         </div>
       </div>
     </div>

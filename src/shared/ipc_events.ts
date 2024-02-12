@@ -24,15 +24,23 @@ export enum FindInPageEvents {
 }
 
 export enum AddressBarEvents {
-  Go = 'go',
-  Close = 'close',
-  GetCurrentUrl = 'get-current-url',
+  Go = 'ab__go',
+  Close = 'ab__close',
+  GetCurrentUrl = 'ab__get-current-url',
+}
+
+export enum NewTabEvents {
+  Go = 'nt__go',
+  Close = 'nt__close',
+  SearchOpenTabs = 'nt__search-open-tabs',
 }
 
 export enum SettingsDialogEvents {
-  GetAdblockValue = 'get-adblock-value',
-  SetAdblockValue = 'set-adblock-value',
-  Close = 'close-settings-dialog',
+  GetAdblockValue = 'settings__get-adblock-value',
+  SetAdblockValue = 'settings__set-adblock-value',
+  GetDefaultSearchEngine = 'settings__get-default-search-engine',
+  SetDefaultSearchEngine = 'settings__set-default-search-engine',
+  Close = 'settings__close',
 }
 
 export enum NotFoundEvents {}
