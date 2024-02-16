@@ -2,13 +2,16 @@
 @tailwind components;
 @tailwind utilities;
 
-:root {
+/* :root {
   scrollbar-gutter: stable;
+} */
+
+#root {
+  height: 100vh;
+  width: 100%;
 }
 
-/* html,
-body,
-#root {
-  height: 100%;
-  width: 100%;
-} */
+#root,
+#__next {
+  isolation: isolate;
+}

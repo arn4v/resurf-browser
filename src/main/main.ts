@@ -1,4 +1,11 @@
 import { ElectronBlocker, fullLists } from '@cliqz/adblocker-electron'
+import { JSDOM } from 'jsdom'
+import { Readability } from '@mozilla/readability'
+import { create, insert, remove, type Orama } from '@orama/orama'
+import {
+  afterInsert as highlightAfterInsert,
+  searchWithHighlight,
+} from '@orama/plugin-match-highlight'
 import { createId } from '@paralleldrive/cuid2'
 import { BrowserView, BrowserWindow, app, ipcMain, screen } from 'electron'
 import contextMenu from 'electron-context-menu'
@@ -17,9 +24,9 @@ import {
 import { Tab, TabsMap } from 'src/shared/tabs'
 import { parse } from 'tldts'
 import { FIND_IN_PAGE_HEIGHT, FIND_IN_PAGE_WIDTH } from '~/shared/constants'
+import { SearchEngine, engineToSearchUrl } from '~/shared/search_engines'
 import { KeyboardShortcuts } from '../shared/keyboard_shortcuts'
 import { ShortcutManager } from './shortcut_manager'
-import { SearchEngine, engineToSearchUrl } from '~/shared/search_engines'
 
 export type Brand<Name extends string, T> = T & { __brand: Name }
 
@@ -111,6 +118,7 @@ class AppWindow {
   sidebarView: BrowserView
   tabToBrowserView = new Map<string, BrowserView>()
   tabToWebContentsId = new BidiMap<string, number>()
+  tabToCurrentHtml = new Map<string, string>()
   tabs = new Map<string, Tab>()
   activeTab: string | null = null
   shortcutManager: ShortcutManager
@@ -144,6 +152,7 @@ class AppWindow {
 
     this.addressBarView = this.createBrowserViewForControlInterface('address_bar')
     this.newTabView = this.createBrowserViewForControlInterface('new_tab')
+    this.newTabView.webContents.openDevTools({ mode: 'detach' })
 
     this.shortcutManager = new ShortcutManager(this.window)
     this.registerShortcuts()
@@ -181,7 +190,8 @@ class AppWindow {
 
   registerShortcuts() {
     this.shortcutManager.registerShortcut(KeyboardShortcuts.NewTab, () => {
-      this.openNewTabPopup()
+      this.toggleNewTabPopup()
+      // this.newTab('https://google.com', true)
     })
     this.shortcutManager.registerShortcut(KeyboardShortcuts.CloseTab, () => {
       if (this.activeTab) this.closeTab(this.activeTab)
@@ -343,11 +353,26 @@ class AppWindow {
         title,
       })
     })
-    view.webContents.on('did-navigate-in-page', (_, url) => {
+
+    async function getContent() {
+      const html = await view.webContents.executeJavaScript(
+        `document.documentElement.innerHTML`,
+        true,
+      )
+      const dom = new JSDOM(html)
+      const parsed = new Readability(dom.window.document).parse()
+      if (!parsed) return ''
+      return parsed?.textContent
+    }
+
+    view.webContents.on('did-navigate-in-page', async () => {
+      const content = await getContent()
       this.updateTabConfig(tabId, {
+        content,
         url: view.webContents.getURL(),
       })
     })
+
     view.webContents.setWindowOpenHandler(({ disposition, url }) => {
       if (disposition === 'foreground-tab' || disposition === 'background-tab') {
         this.newTab(url, false, tabId)
@@ -360,6 +385,7 @@ class AppWindow {
         action: 'allow',
       }
     })
+
     view.webContents.on(
       'did-fail-load',
       async (_, errorCode, errorDescription, validatedURL, isMainFrame) => {
@@ -391,6 +417,7 @@ class AppWindow {
         preload: preloadPath,
       },
     })
+    console.log(view, getInternalViewPath(name))
     this.loadInternalViewURLOrFile(view, getInternalViewPath(name))
     // view.setBackgroundColor('hsla(0,0,0%,100.0)')
     return view
@@ -524,10 +551,12 @@ class AppWindow {
     preferencesStore.set('lastActiveTab', this.activeTab)
   }
   updateTabConfig(id: Tab['id'], update: Partial<Tab>) {
-    this.tabs.set(id, {
+    const updated: Tab = {
       ...this.tabs.get(id)!,
       ...update,
-    })
+    }
+    this.tabs.set(id, updated)
+    this.upsertTabForSearch(id, updated)
     this.emitUpdateTabs()
   }
 
@@ -563,6 +592,49 @@ class AppWindow {
     ipcMain.on(ControlEmittedEvents.Tabs_UpdateActiveTab, (_, tabId: string) => {
       this.setActiveTab(tabId)
     })
+  }
+
+  /* -------------------------------------------------------------------------- */
+  /*                                 Tab Search                                 */
+  /* -------------------------------------------------------------------------- */
+  searchDb: Orama<{ id: string; title: string; content: string }> | undefined = undefined
+  tabToSearchDbId = new Map<string, string>()
+  async getSearchDb(): Promise<Orama<{ title: string; content: string }>> {
+    if (!this.searchDb) {
+      this.searchDb = await create({
+        schema: {
+          id: 'string',
+          title: 'string',
+          content: 'string',
+        },
+        plugins: [
+          // Register the hook
+          {
+            name: 'highlight',
+            afterInsert: highlightAfterInsert,
+          },
+        ],
+      })
+    }
+    return this.searchDb
+  }
+  async upsertTabForSearch(tab: Tab) {
+    const searchDb = await this.getSearchDb()
+    await remove(searchDb, tab.id)
+    await insert(searchDb, {
+      id: tab.id,
+      title: tab.title,
+      content: tab.content,
+    })
+  }
+  async searchOpenTabs(query: string) {
+    const searchDb = await this.getSearchDb()
+    return await searchWithHighlight<typeof searchDb, { title: string; content: string }>(
+      searchDb,
+      {
+        term: query,
+      },
+    )
   }
 
   /* -------------------------------------------------------------------------- */
@@ -659,13 +731,12 @@ class AppWindow {
     this.window.addBrowserView(this.newTabView)
     this.window.setTopBrowserView(this.newTabView)
     this.newTabView.setBounds({ ...this.window.getBounds(), y: 0 })
-    this.newTabView.webContents.reload()
     this.newTabView.webContents.focus()
   }
   closeNewTabPopup() {
     this.newTabOpen = false
     this.window.removeBrowserView(this.newTabView)
-    this.newTabView.webContents.reload()
+    this.newTabView.webContents.send(NewTabEvents.Reset)
   }
   toggleNewTabPopup() {
     if (this.newTabOpen) {
@@ -675,11 +746,23 @@ class AppWindow {
     }
   }
   setupNewTabHandlers() {
+    ipcMain.handle(NewTabEvents.GetAllTabs, () => {
+      return [...this.tabs.entries()].map((x) => x[1])
+    })
+
+    ipcMain.handle(NewTabEvents.GetDefaultSearchEngine, () => {
+      return preferencesStore.get('search_engine')
+    })
+
     ipcMain.handle(NewTabEvents.Close, () => {
       this.closeNewTabPopup()
     })
-    ipcMain.handle(NewTabEvents.SearchOpenTabs, () => {
-      return []
+
+    ipcMain.handle(NewTabEvents.Search, async (_, query) => {
+      const { hits } = await this.searchOpenTabs(query)
+      return {
+        tabs: hits,
+      }
     })
     // ipcMain.handle(
     //   NewTabEvents.Go,
@@ -799,7 +882,6 @@ class AppWindow {
       }
     })
     ipcMain.handle(SettingsDialogEvents.SetDefaultSearchEngine, (_, value: SearchEngine) => {
-      console.log(value)
       preferencesStore.set('search_engine', value)
     })
     ipcMain.handle(SettingsDialogEvents.GetDefaultSearchEngine, () => {

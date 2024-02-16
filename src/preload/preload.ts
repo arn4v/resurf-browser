@@ -32,6 +32,10 @@ export const globals = {
       }
     },
 
+    invokeSync(channel: string, ...args: any[]) {
+      return ipcRenderer.sendSync(channel, ...args)
+    },
+
     invoke(channel: string, ...args: any[]) {
       if (validateIPC(channel)) {
         return ipcRenderer.invoke(channel, ...args)

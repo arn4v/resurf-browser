@@ -32,7 +32,10 @@ export enum AddressBarEvents {
 export enum NewTabEvents {
   Go = 'nt__go',
   Close = 'nt__close',
-  SearchOpenTabs = 'nt__search-open-tabs',
+  Reset = 'nt__reset',
+  Search = 'nt__search',
+  GetDefaultSearchEngine = 'nt__get-default-search-engine',
+  GetAllTabs = 'nt__get-all-tabs',
 }
 
 export enum SettingsDialogEvents {

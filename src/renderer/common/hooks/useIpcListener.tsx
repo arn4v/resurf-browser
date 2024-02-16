@@ -1,9 +1,8 @@
 import { useEffect } from 'react'
-import type { RendererListener } from '~/preload/preload'
 import { registerIpcListener } from '~/common/lib/ipc'
-import { MainProcessEmittedEvents } from '~/shared/ipc_events'
+import type { RendererListener } from '~/preload/preload'
 
-export function useIpcListener(channel: MainProcessEmittedEvents, listener: RendererListener) {
+export function useIpcListener(channel: string, listener: RendererListener) {
   useEffect(() => {
     return registerIpcListener(channel, listener)
   }, [channel, listener])

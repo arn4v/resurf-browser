@@ -1,7 +1,7 @@
 export enum SearchEngine {
   Google = 'google',
   Bing = 'bing',
-  DuckDuckGo = 'duckduckgo',
+  // DuckDuckGo = 'duckduckgo',
   Perplexity = 'perplexity',
   Exa = 'exa',
 }
@@ -9,7 +9,7 @@ export enum SearchEngine {
 export const engineToTitle = {
   [SearchEngine.Google]: 'Google',
   [SearchEngine.Bing]: 'Bing',
-  [SearchEngine.DuckDuckGo]: 'DuckDuckGo',
+  // [SearchEngine.DuckDuckGo]: 'DuckDuckGo',
   [SearchEngine.Perplexity]: 'Perplexity',
   [SearchEngine.Exa]: 'Exa',
 } satisfies Record<SearchEngine, string>
@@ -17,15 +17,15 @@ export const engineToTitle = {
 export const engineToShortcode = {
   [SearchEngine.Google]: 'gg',
   [SearchEngine.Bing]: 'bg',
-  [SearchEngine.DuckDuckGo]: 'ddg',
-  [SearchEngine.Perplexity]: 'pp',
+  // [SearchEngine.DuckDuckGo]: 'ddg',
+  [SearchEngine.Perplexity]: 'px',
   [SearchEngine.Exa]: 'ex',
 } satisfies Record<SearchEngine, string>
 
 export const engineToSearchUrl = {
   [SearchEngine.Google]: 'https://www.google.com/search?q=',
   [SearchEngine.Bing]: 'https://www.bing.com/search?q=',
-  [SearchEngine.DuckDuckGo]: 'https://duckduckgo.com/?q=',
+  // [SearchEngine.DuckDuckGo]: 'https://duckduckgo.com/?q=',
   [SearchEngine.Perplexity]: 'https://perplexity.ai/search?q=',
   [SearchEngine.Exa]: 'https://exa.ai/search?q=',
 } satisfies Record<SearchEngine, string>
