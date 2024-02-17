@@ -1,6 +1,4 @@
 import { ElectronBlocker, fullLists } from '@cliqz/adblocker-electron'
-import { JSDOM } from 'jsdom'
-import { Readability } from '@mozilla/readability'
 import { create, insert, remove, type Orama } from '@orama/orama'
 import {
   afterInsert as highlightAfterInsert,
@@ -151,8 +149,11 @@ class AppWindow {
     this.setupSidebarView()
 
     this.addressBarView = this.createBrowserViewForControlInterface('address_bar')
+    this.settingsView = this.createBrowserViewForControlInterface('settings')
     this.newTabView = this.createBrowserViewForControlInterface('new_tab')
-    this.newTabView.webContents.openDevTools({ mode: 'detach' })
+    // if (Env.deploy.isDevelopment) this.addressBarView.webContents.openDevTools({ mode: 'detach' })
+    // if (Env.deploy.isDevelopment) this.settingsView.webContents.openDevTools({ mode: 'detach' })
+    // if (Env.deploy.isDevelopment) this.newTabView.webContents.openDevTools({ mode: 'detach' })
 
     this.shortcutManager = new ShortcutManager(this.window)
     this.registerShortcuts()
@@ -160,7 +161,6 @@ class AppWindow {
     this.setupIpcHandlers()
 
     void this.setupAdblocker()
-    this.settingsView = this.createBrowserViewForControlInterface('settings')
 
     this.restoreTabsOrCreateBlank()
 
@@ -174,6 +174,13 @@ class AppWindow {
     if (savedTabs && Object.entries(savedTabs).length >= 1) {
       const tabsArr = Object.entries(savedTabs)
       const tabs = new Map<string, Tab>(tabsArr)
+      /*
+      tabsArr.map(([_, tab]) => {
+        const view = this.createWebview(tab.id, tab.url)
+        this.tabToBrowserView.set(tab.id, view)
+        this.tabToWebContentsId.set(tab.id, view.webContents.id)
+      })
+      */
       this.tabs = tabs
       const lastActiveTab = preferencesStore.get('active_tab') || tabsArr[0][0]
       this.setActiveTab(lastActiveTab)
@@ -354,22 +361,34 @@ class AppWindow {
       })
     })
 
-    async function getContent() {
-      const html = await view.webContents.executeJavaScript(
-        `document.documentElement.innerHTML`,
-        true,
-      )
-      const dom = new JSDOM(html)
-      const parsed = new Readability(dom.window.document).parse()
-      if (!parsed) return ''
-      return parsed?.textContent
+    async function getContent(url: string) {
+      return ''
+      // const html = await view.webContents.executeJavaScript(
+      //   `document.documentElement.innerHTML`,
+      //   true,
+      // )
+      // return html
+
+      // const window = new JSDOM('').window
+
+      // // strip potential XSS/JS in the article using DOMPurify library
+      // const DOMPurify = createDOMPurify(window)
+      // const cleaned_html = DOMPurify.sanitize(html)
+      // const cleaned_dom = new JSDOM(cleaned_html, { url })
+
+      // const dom = new JSDOM(html)
+      // const reader = new Readability(cleaned_dom.window.document)
+      // const parsed = reader.parse()
+      // if (!parsed) return ''
+      // return parsed?.textContent
     }
 
     view.webContents.on('did-navigate-in-page', async () => {
-      const content = await getContent()
+      const url = view.webContents.getURL()
+      const content = await getContent(url)
       this.updateTabConfig(tabId, {
         content,
-        url: view.webContents.getURL(),
+        url,
       })
     })
 
@@ -394,7 +413,6 @@ class AppWindow {
             getInternalViewPath('not_found') +
             `?reason=${(await isOnline()) ? 'offline' : 'dead-link'}`
 
-          console.log({ notFoundUrl })
           this.loadInternalViewURLOrFile(view, notFoundUrl)
 
           this.updateTabConfig(tabId, {
@@ -417,7 +435,6 @@ class AppWindow {
         preload: preloadPath,
       },
     })
-    console.log(view, getInternalViewPath(name))
     this.loadInternalViewURLOrFile(view, getInternalViewPath(name))
     // view.setBackgroundColor('hsla(0,0,0%,100.0)')
     return view
@@ -501,12 +518,14 @@ class AppWindow {
     const currentActiveTab = this.activeTab
     // const activeView = this.getActiveView()
 
+    console.time('setActiveTab A')
     let newActiveView = this.tabToBrowserView.get(tabId)
     if (newActiveTab && !newActiveView) {
       newActiveView = this.createWebview(newActiveTab.id, newActiveTab.url)
       this.tabToBrowserView.set(newActiveTab.id, newActiveView)
       this.tabToWebContentsId.set(newActiveTab.id, newActiveView.webContents.id)
     }
+    console.timeEnd('setActiveTab A')
 
     if (newActiveView) {
       this.activeTab = tabId
@@ -556,7 +575,7 @@ class AppWindow {
       ...update,
     }
     this.tabs.set(id, updated)
-    this.upsertTabForSearch(id, updated)
+    // this.upsertTabForSearch(id, updated)
     this.emitUpdateTabs()
   }
 
@@ -590,7 +609,10 @@ class AppWindow {
       this.closeTab(tabId)
     })
     ipcMain.on(ControlEmittedEvents.Tabs_UpdateActiveTab, (_, tabId: string) => {
+      const start = Date.now()
       this.setActiveTab(tabId)
+      const end = Date.now()
+      console.log(`setActiveTab took ${(end - start) / 1000}s`)
     })
   }
 
@@ -619,6 +641,7 @@ class AppWindow {
     return this.searchDb
   }
   async upsertTabForSearch(tab: Tab) {
+    if (!tab.content) return
     const searchDb = await this.getSearchDb()
     await remove(searchDb, tab.id)
     await insert(searchDb, {
@@ -732,11 +755,13 @@ class AppWindow {
     this.window.setTopBrowserView(this.newTabView)
     this.newTabView.setBounds({ ...this.window.getBounds(), y: 0 })
     this.newTabView.webContents.focus()
+    // if (Env.deploy.isDevelopment) this.newTabView.webContents.openDevTools({ mode: 'detach' })
   }
   closeNewTabPopup() {
     this.newTabOpen = false
     this.window.removeBrowserView(this.newTabView)
     this.newTabView.webContents.send(NewTabEvents.Reset)
+    // if (Env.deploy.isDevelopment) this.newTabView.webContents.closeDevTools()
   }
   toggleNewTabPopup() {
     if (this.newTabOpen) {
@@ -913,11 +938,11 @@ class AppWindow {
     // and load the index.html of the app.
 
     this.loadInternalViewURLOrFile(controlView, getInternalViewPath('sidebar'))
-    if (Env.deploy.isDevelopment) {
-      controlView.webContents.openDevTools()
-    }
+
     this.window.addBrowserView(controlView)
     this.window.setTopBrowserView(controlView)
+
+    if (Env.deploy.isDevelopment) controlView.webContents.openDevTools()
   }
 
   getSidebarWidthOrDefault() {

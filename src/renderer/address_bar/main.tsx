@@ -4,19 +4,10 @@ import './globals.css'
 import { AddressBarEvents } from '~/shared/ipc_events'
 import { useDidMount } from 'rooks'
 import { useEventListener } from 'usehooks-ts'
+import { waitOneTick } from '~/common/lib/utils'
 
 const container = document.getElementById('root') as HTMLDivElement
 const root = createRoot(container)
-
-function sleep(ms: number) {
-  return new Promise((resolve) => {
-    setTimeout(resolve, ms)
-  })
-}
-
-function waitOneTick() {
-  return sleep(1)
-}
 
 function App() {
   const [query, setQuery] = React.useState('')

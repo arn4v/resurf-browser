@@ -1,5 +1,5 @@
 import { SearchIcon } from 'lucide-react'
-import { useEffect, useState } from 'react'
+import { useEffect, useReducer, useRef, useState } from 'react'
 import { useDebouncedValue, useDidMount } from 'rooks'
 import { useEventListener } from 'usehooks-ts'
 import { useIpcListener } from '~/common/hooks/useIpcListener'
@@ -13,6 +13,7 @@ import '../common/globals.css'
 import { ResultWithPositions } from '@orama/plugin-match-highlight'
 import { Tab } from '~/shared/tabs'
 import { Highlight } from '@orama/highlight'
+import { waitOneTick } from '~/common/lib/utils'
 
 enum OmnibarMode {
   All = 'all',
@@ -57,16 +58,33 @@ const highlighter = new Highlight({
   CSSClass: 'bg-yellow-400',
 })
 
+interface State {
+  query: string
+  mode: OmnibarMode
+  searchModeEngine: SearchEngine | null
+  results: SearchResults
+  allTabs: Tab[]
+}
+
 export function App() {
+  const [state, dispatch] = useReducer(
+    (state: State, update: Partial<State>) => {
+      return {
+        ...state,
+        ...update,
+      }
+    },
+    {
+      allTabs: [],
+      mode: OmnibarMode.All,
+      query: '',
+      results: INITIAL_RESULTS,
+      searchModeEngine: null,
+    } satisfies State,
+  )
+  const inputRef = useRef<HTMLInputElement>(null)
+  const [debouncedQuery] = useDebouncedValue(state.query, 200)
   const [defaultSearchEngine, setDefaultSearchEngine] = useState<SearchEngine>(SearchEngine.Google)
-
-  const [query, setQuery] = useState('')
-  const [debouncedQuery] = useDebouncedValue(query, 200)
-
-  const [mode, setMode] = useState<OmnibarMode>(OmnibarMode.All)
-  const [searchModeEngine, setSearchModeEngine] = useState<SearchEngine | null>(null)
-  const [results, setResults] = useState<SearchResults>(INITIAL_RESULTS)
-  const [allTabs, setAllTabs] = useState<Tab[]>([])
 
   function handleClose() {
     ipcRenderer.invoke(NewTabEvents.Close)
@@ -77,16 +95,19 @@ export function App() {
     setDefaultSearchEngine(engine)
 
     const tabs: Tab[] = await ipcRenderer.invoke(NewTabEvents.GetAllTabs)
-    setAllTabs(tabs)
+    dispatch({ allTabs: tabs })
+
+    await waitOneTick()
+    inputRef.current?.focus()
   })
-  useEffect(() => {
-    if (mode === OmnibarMode.SearchEngine) return
-    if (query === '') return
-    ;(async () => {
-      const results: SearchResults = await ipcRenderer.invoke(NewTabEvents.Search, debouncedQuery)
-      setResults(results)
-    })()
-  }, [debouncedQuery])
+  // useEffect(() => {
+  //   if (state.mode === OmnibarMode.SearchEngine) return
+  //   if (debouncedQuery === '') return
+  //   ;(async () => {
+  //     const results: SearchResults = await ipcRenderer.invoke(NewTabEvents.Search, debouncedQuery)
+  //     dispatch({ results })
+  //   })()
+  // }, [debouncedQuery])
 
   useIpcListener(NewTabEvents.Reset, () => {})
   useEventListener('keydown', (e) => {
@@ -95,38 +116,48 @@ export function App() {
     }
   })
 
-  const ModeIcon = searchModeEngine ? SEARCH_ENGINE_TO_ICON[searchModeEngine] : SearchIcon
-  const tabs = query === '' ? allTabs : results.tabs
+  const ModeIcon = state.searchModeEngine
+    ? SEARCH_ENGINE_TO_ICON[state.searchModeEngine]
+    : SearchIcon
+  const tabs = state.query === '' ? state.allTabs : state.results.tabs
 
   return (
     <div className='h-full w-full relative grid place-items-center dark isolate'>
-      <div className='h-full w-full absolute top-0 left-0 bg-black/10 z-10' onClick={handleClose} />
-      <div className='border bg-zinc-900 flex flex-col items-start justify-start shadow-lg w-1/2 lg:w-1/3 max-w-[600px] h-[500px] rounded-lg text-sm z-20 text-white relative'>
-        {MODES_TO_SHOW_INDICATOR_FOR.includes(mode) && (
+      <div className='h-full w-full absolute top-0 left-0 bg-black/50 z-10' onClick={handleClose} />
+      <div className='border border-zinc-600 bg-zinc-900 flex flex-col items-start justify-start shadow-lg w-1/2 lg:w-1/3 max-w-[600px] h-[500px] rounded-lg text-sm z-20 text-white relative'>
+        {MODES_TO_SHOW_INDICATOR_FOR.includes(state.mode) && (
           <div className='absolute left-0 top-0 -translate-y-full mb-4'>
-            {MODE_TO_HUMAN_READABLE[mode]}
+            {MODE_TO_HUMAN_READABLE[state.mode]}
           </div>
         )}
-        <label className='group h-10 w-full px-4 border-b border-zinc-700 flex items-center justify-center'>
+        <label className='group h-10 w-full px-4 border-b border-zinc-700 flex items-center justify-center sticky'>
           <ModeIcon className='h-5 w-5' />
           <input
+            ref={inputRef}
+            autoFocus
             className='bg-transparent h-10 outline-none grow px-2'
-            value={query}
+            value={state.query}
             placeholder={
-              mode === OmnibarMode.SearchEngine && searchModeEngine
-                ? `Search on ${engineToTitle[searchModeEngine]}...`
+              state.mode === OmnibarMode.SearchEngine && state.searchModeEngine
+                ? `Search on ${engineToTitle[state.searchModeEngine]}...`
                 : `Search everything...`
             }
             onKeyDown={(e) => {
-              if (e.key === 'Backspace' && query === '' && mode === OmnibarMode.SearchEngine) {
-                setMode(OmnibarMode.All)
-                setSearchModeEngine(null)
+              if (
+                e.key === 'Backspace' &&
+                state.query === '' &&
+                state.mode === OmnibarMode.SearchEngine
+              ) {
+                dispatch({
+                  mode: OmnibarMode.All,
+                  searchModeEngine: null,
+                })
               }
             }}
             onInput={(e) => {
               let query = e.currentTarget.value
               let mode: OmnibarMode = OmnibarMode.All
-              let searchEngine: SearchEngine | null = null
+              let searchModeEngine: SearchEngine | null = null
               const matchesWithShortcode = Object.entries(engineToShortcode).find(
                 ([_, shortcode]) => {
                   return query.startsWith(`!${shortcode}`)
@@ -137,12 +168,14 @@ export function App() {
                 const [engine, shortcode] = matchesWithShortcode
                 query = query.slice(`!${shortcode}`.length)
                 mode = OmnibarMode.SearchEngine
-                searchEngine = engine as SearchEngine
+                searchModeEngine = engine as SearchEngine
               }
 
-              setQuery(query)
-              setMode(mode)
-              setSearchModeEngine(searchEngine)
+              dispatch({
+                query,
+                mode,
+                searchModeEngine,
+              })
             }}
           />
         </label>
