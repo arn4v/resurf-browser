@@ -13,11 +13,11 @@ export async function up(db: DbInstance) {
     .execute()
 
   await db.schema
-    .createTable('event')
+    .createTable('tab_event')
     .ifNotExists()
     .addColumn('id', 'integer', (col) => col.primaryKey().autoIncrement())
-    .addColumn('type', 'text', (col) => col.notNull())
-    .addColumn('metadata', 'jsonb', (col) => col.notNull().defaultTo({}))
+    .addColumn('tab_id', 'integer', (col) => col.notNull())
+    .addColumn('event', 'json', (col) => col.notNull())
     .addColumn('created_at', 'datetime', (col) => col.defaultTo(sql`CURRENT_TIMESTAMP`))
     .execute()
 

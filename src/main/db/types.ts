@@ -1,16 +1,8 @@
-import {
-  ColumnType,
-  Generated,
-  SqlBool,
-  JSONColumnType,
-  Insertable,
-  Selectable,
-  Updateable,
-} from 'kysely'
+import { ColumnType, Generated, Insertable, JSONColumnType, Selectable, Updateable } from 'kysely'
 
 export interface Database {
   tab: TabTable
-  event: EventTable
+  tab_event: EventTable
   visited_url: VisitedURLTable
 }
 
@@ -28,8 +20,9 @@ export type TabUpdate = Updateable<TabTable>
 
 export interface EventTable {
   id: Generated<number>
-  type: string
-  metadata: JSONColumnType<any>
+  tab_id: Tab['id']
+  event: string
+  data: JSONColumnType<Record<string, any>>
   created_at: ColumnType<Date, string | undefined, never>
 }
 

@@ -1,6 +1,19 @@
 import { Database } from './types'
 import SQLite from 'better-sqlite3'
-import { Kysely, SqliteDialect, MigrationProvider, Migration, Migrator } from 'kysely'
+import {
+  Kysely,
+  SqliteDialect,
+  MigrationProvider,
+  Migration,
+  Migrator,
+  ParseJSONResultsPlugin,
+  KyselyPlugin,
+  PluginTransformQueryArgs,
+  RootOperationNode,
+  PluginTransformResultArgs,
+  QueryResult,
+  UnknownRow,
+} from 'kysely'
 import * as migration_001 from './migrations/001'
 import { app } from 'electron'
 import path from 'path'
@@ -18,6 +31,7 @@ export function createDb() {
 
   return new Kysely<Database>({
     dialect,
+    plugins: [new ParseJSONResultsPlugin()],
   })
 }
 

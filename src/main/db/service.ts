@@ -1,7 +1,6 @@
-import { Kysely, SqliteDialect } from 'kysely'
-import { Database, NewEvent, NewTab, NewVisitedURL, TabUpdate } from './types'
-import Sqlite3 from 'better-sqlite3'
 import { createDb } from './db'
+import { TabEvent } from './event_definitions'
+import { NewTab, NewVisitedURL, TabUpdate } from './types'
 
 export class DatabaseService {
   db = createDb()
@@ -31,7 +30,14 @@ export class DatabaseService {
     return await this.db.updateTable('tab').set(update).where('id', '=', id).executeTakeFirst()
   }
 
-  async insertTabEvent(event: NewEvent) {
-    return await this.db.insertInto('event').values(event).executeTakeFirst()
+  async insertTabEvent(tab_id: number, event: TabEvent) {
+    return await this.db
+      .insertInto('tab_event')
+      .values({
+        tab_id,
+        event: event.type,
+        data: JSON.stringify(event.data),
+      })
+      .executeTakeFirst()
   }
 }

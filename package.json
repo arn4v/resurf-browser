@@ -87,6 +87,7 @@
     "react-event-listener": "^0.6.6",
     "react-resizable-panels": "^2.0.3",
     "rooks": "^7.14.1",
+    "siero": "^0.3.0",
     "tailwind-merge": "^2.2.1",
     "tailwindcss-animate": "^1.0.7",
     "tldts": "^6.1.10",

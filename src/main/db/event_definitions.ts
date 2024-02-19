@@ -1,29 +1,29 @@
 import { NewEvent } from './types'
 
-type EventStruct<T extends Pick<NewEvent, 'type'> & { metadata: object }> = T
+type EventStruct<T extends Pick<NewEvent, 'event'> & { data: object }> = T
 
 type TabNavigateForward = EventStruct<{
   type: 'tab_navigate_forward'
-  metadata: {
+  data: {
     next_url: string
   }
 }>
 
 type TabNavigateBack = EventStruct<{
   type: 'tab_navigate_back'
-  metadata: {
+  data: {
     next_url: string
   }
 }>
 
 type TabUnfocused = EventStruct<{
   type: 'tab_unfocused'
-  metadata: {}
+  data: {}
 }>
 
 type TabFocusedEvent = EventStruct<{
   type: 'tab_focused'
-  metadata: {}
+  data: {}
 }>
 
 export type TabEvent = TabFocusedEvent | TabUnfocused | TabNavigateBack | TabNavigateForward
