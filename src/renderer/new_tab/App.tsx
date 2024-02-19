@@ -124,7 +124,7 @@ export function App() {
   return (
     <div className='h-full w-full relative grid place-items-center dark isolate'>
       <div className='h-full w-full absolute top-0 left-0 bg-black/50 z-10' onClick={handleClose} />
-      <div className='border border-zinc-600 bg-zinc-900 flex flex-col items-start justify-start shadow-lg w-1/2 lg:w-1/3 max-w-[600px] h-[500px] rounded-lg text-sm z-20 text-white relative'>
+      <div className='border border-zinc-900 bg-neutral-900 flex flex-col items-start justify-start shadow-lg w-1/2 lg:w-1/3 max-w-[600px] max-h-[500px] rounded-lg text-sm z-20 text-white relative'>
         {MODES_TO_SHOW_INDICATOR_FOR.includes(state.mode) && (
           <div className='absolute left-0 top-0 -translate-y-full mb-4'>
             {MODE_TO_HUMAN_READABLE[state.mode]}
@@ -179,18 +179,18 @@ export function App() {
             }}
           />
         </label>
-        <div className='w-full grow max-h-full overflow-y-auto flex flex-col overflow-x-clip'>
-          <div className='px-4 py-2 text-sm text-zinc-200'>Open Tabs</div>
+        <div className='w-full grow max-h-full overflow-y-auto flex flex-col overflow-x-clip p-4'>
+          <div className='text-xs font-medium uppercase text-zinc-200'>Open Tabs</div>
           {tabs.map((tab) => {
             // const title = highlighter.highlight(tab.title, query)
             // const content = highlighter.highlight(tab.content, query)
 
             return (
-              <div key={tab.id} className='px-4 flex flex-col'>
+              <div key={tab.id} className='px-2 flex flex-col'>
                 <div className='whitespace-nowrap truncate text-md font-medium'>{tab.title}</div>
-                <div className='text-sm whitespace-nowrap truncate text-zinc-300'>
+                {/* <div className='text-sm whitespace-nowrap truncate text-zinc-300'>
                   {tab.content}
-                </div>
+                </div> */}
                 {/* <span
                   dangerouslySetInnerHTML={{ __html: title.HTML }}
                   className='font-medium text-md'

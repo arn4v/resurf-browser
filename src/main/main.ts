@@ -59,6 +59,7 @@ type StoredPreferences = {
   search_engine: SearchEngine
 }
 const preferencesStore = new Store<StoredPreferences>({
+  name: Date.now().toString(),
   defaults: {
     active_tab: null,
     tabs: {},
@@ -151,9 +152,9 @@ class AppWindow {
     this.addressBarView = this.createBrowserViewForControlInterface('address_bar')
     this.settingsView = this.createBrowserViewForControlInterface('settings')
     this.newTabView = this.createBrowserViewForControlInterface('new_tab')
-    // if (Env.deploy.isDevelopment) this.addressBarView.webContents.openDevTools({ mode: 'detach' })
-    // if (Env.deploy.isDevelopment) this.settingsView.webContents.openDevTools({ mode: 'detach' })
-    // if (Env.deploy.isDevelopment) this.newTabView.webContents.openDevTools({ mode: 'detach' })
+    if (Env.deploy.isDevelopment) this.addressBarView.webContents.openDevTools({ mode: 'detach' })
+    if (Env.deploy.isDevelopment) this.settingsView.webContents.openDevTools({ mode: 'detach' })
+    if (Env.deploy.isDevelopment) this.newTabView.webContents.openDevTools({ mode: 'detach' })
 
     this.shortcutManager = new ShortcutManager(this.window)
     this.registerShortcuts()
@@ -387,7 +388,6 @@ class AppWindow {
       const url = view.webContents.getURL()
       const content = await getContent(url)
       this.updateTabConfig(tabId, {
-        content,
         url,
       })
     })
@@ -518,14 +518,12 @@ class AppWindow {
     const currentActiveTab = this.activeTab
     // const activeView = this.getActiveView()
 
-    console.time('setActiveTab A')
     let newActiveView = this.tabToBrowserView.get(tabId)
     if (newActiveTab && !newActiveView) {
       newActiveView = this.createWebview(newActiveTab.id, newActiveTab.url)
       this.tabToBrowserView.set(newActiveTab.id, newActiveView)
       this.tabToWebContentsId.set(newActiveTab.id, newActiveView.webContents.id)
     }
-    console.timeEnd('setActiveTab A')
 
     if (newActiveView) {
       this.activeTab = tabId
@@ -614,50 +612,6 @@ class AppWindow {
       const end = Date.now()
       console.log(`setActiveTab took ${(end - start) / 1000}s`)
     })
-  }
-
-  /* -------------------------------------------------------------------------- */
-  /*                                 Tab Search                                 */
-  /* -------------------------------------------------------------------------- */
-  searchDb: Orama<{ id: string; title: string; content: string }> | undefined = undefined
-  tabToSearchDbId = new Map<string, string>()
-  async getSearchDb(): Promise<Orama<{ title: string; content: string }>> {
-    if (!this.searchDb) {
-      this.searchDb = await create({
-        schema: {
-          id: 'string',
-          title: 'string',
-          content: 'string',
-        },
-        plugins: [
-          // Register the hook
-          {
-            name: 'highlight',
-            afterInsert: highlightAfterInsert,
-          },
-        ],
-      })
-    }
-    return this.searchDb
-  }
-  async upsertTabForSearch(tab: Tab) {
-    if (!tab.content) return
-    const searchDb = await this.getSearchDb()
-    await remove(searchDb, tab.id)
-    await insert(searchDb, {
-      id: tab.id,
-      title: tab.title,
-      content: tab.content,
-    })
-  }
-  async searchOpenTabs(query: string) {
-    const searchDb = await this.getSearchDb()
-    return await searchWithHighlight<typeof searchDb, { title: string; content: string }>(
-      searchDb,
-      {
-        term: query,
-      },
-    )
   }
 
   /* -------------------------------------------------------------------------- */
@@ -784,10 +738,10 @@ class AppWindow {
     })
 
     ipcMain.handle(NewTabEvents.Search, async (_, query) => {
-      const { hits } = await this.searchOpenTabs(query)
-      return {
-        tabs: hits,
-      }
+      // const { hits } = await this.searchOpenTabs(query)
+      // return {
+      //   tabs: hits,
+      // }
     })
     // ipcMain.handle(
     //   NewTabEvents.Go,
@@ -942,7 +896,7 @@ class AppWindow {
     this.window.addBrowserView(controlView)
     this.window.setTopBrowserView(controlView)
 
-    if (Env.deploy.isDevelopment) controlView.webContents.openDevTools()
+    if (Env.deploy.isDevelopment) controlView.webContents.openDevTools({ mode: 'detach' })
   }
 
   getSidebarWidthOrDefault() {

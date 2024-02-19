@@ -18,7 +18,6 @@ export function Sidebar() {
     setTabs(tabs)
   })
   useIpcListener(MainProcessEmittedEvents.TabsUpdateActiveTab, (_, activeTab: Tab['id']) => {
-    console.log({ activeTab })
     setActiveTab(activeTab)
   })
 
