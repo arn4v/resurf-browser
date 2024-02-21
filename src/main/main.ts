@@ -776,11 +776,8 @@ class AppWindow {
               ? urlOrSearchQuery
               : 'http://' + urlOrSearchQuery
           } else {
-            console.log(
-              engineToSearchUrl[preferencesStore.get('search_engine') || SearchEngine.Google],
-            )
-            const searchQuery = encodeURIComponent(urlOrSearchQuery)
-            url = `${engineToSearchUrl[preferencesStore.get('search_engine') || SearchEngine.Google]}${searchQuery}`
+            const searchEngine = preferencesStore.get('search_engine') || SearchEngine.Google
+            url = `${engineToSearchUrl[searchEngine]}${encodeURIComponent(urlOrSearchQuery)}`
           }
         }
         if (newTab) {

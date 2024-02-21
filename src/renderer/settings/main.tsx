@@ -33,9 +33,9 @@ function App() {
   }
 
   return (
-    <div className='h-full w-full relative grid place-items-center dark'>
-      <div className='h-full w-full absolute top-0 left-0 bg-black/10 z-10' onClick={handleClose} />
-      <div className='bg-zinc-800 flex flex-col items-start justify-start shadow-lg w-1/4 h-[25%] rounded-lg text-sm z-20 text-white p-4'>
+    <div className='h-full w-full relative dark'>
+      <div className='h-full w-full absolute top-0 left-0 bg-black/50 z-10' onClick={handleClose} />
+      <div className='border fixed top-[20%] left-1/2 -translate-x-1/2 border-zinc-900 bg-neutral-900 flex flex-col items-start justify-start shadow-lg w-1/2 lg:w-1/3 max-w-[600px] max-h-[500px] rounded-lg text-sm z-20 text-white p-4'>
         <div className='flex items-center justify-between w-full'>
           <h1 className='font-semibold text-xl'>Settings</h1>
           <button onClick={handleClose}>
