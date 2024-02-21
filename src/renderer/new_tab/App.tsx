@@ -241,8 +241,8 @@ export function App() {
     if (el) {
       scrollIntoViewIfNeeded(el, {
         scrollMode: 'if-needed',
-        block: 'nearest',
-        inline: 'nearest',
+        block: 'center',
+        inline: 'center',
       })
     }
   }, [selected])

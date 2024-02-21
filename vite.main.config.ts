@@ -8,6 +8,11 @@ export default defineConfig({
     browserField: false,
     mainFields: ['module', 'jsnext:main', 'jsnext'],
   },
+  build: {
+    rollupOptions: {
+      external: ['better-sqlite3'],
+    },
+  },
   plugins: [
     tsconfigPaths(),
     {
