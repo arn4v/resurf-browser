@@ -122,6 +122,7 @@ class AppWindow {
   activeTab: string | null = null
   shortcutManager: ShortcutManager
   blocker: ElectronBlocker | undefined
+  currentlyOpenGlobalDialog: 'new_tab' | 'settings' | 'address_bar' | undefined = undefined
 
   constructor() {
     this.window = new BrowserWindow({
@@ -283,6 +284,26 @@ class AppWindow {
       this.blocker?.disableBlockingInSession(view.webContents.session)
     }
     preferencesStore.set('adblockEnabled', false)
+  }
+
+  /* -------------------------------------------------------------------------- */
+  /*                               Global Dialogs                               */
+  /* -------------------------------------------------------------------------- */
+  closeCurrentlyOpenGlobalDialog() {
+    switch (this.currentlyOpenGlobalDialog) {
+      case 'new_tab': {
+        this.closeNewTabPopup()
+        return
+      }
+      case 'address_bar': {
+        this.closeAddressBar()
+        return
+      }
+      case 'settings': {
+        this.closeSettings()
+        return
+      }
+    }
   }
 
   /* -------------------------------------------------------------------------- */
@@ -705,6 +726,8 @@ class AppWindow {
   newTabView: BrowserView
   newTabOpen = false
   openNewTabPopup() {
+    this.closeCurrentlyOpenGlobalDialog()
+    this.currentlyOpenGlobalDialog = 'new_tab'
     this.newTabOpen = true
     this.window.addBrowserView(this.newTabView)
     this.window.setTopBrowserView(this.newTabView)
@@ -776,6 +799,8 @@ class AppWindow {
   addressBarView: BrowserView
   addressBarOpen = false
   openAddressBar() {
+    this.closeCurrentlyOpenGlobalDialog()
+    this.currentlyOpenGlobalDialog = 'address_bar'
     this.addressBarOpen = true
     this.window.addBrowserView(this.addressBarView)
     this.window.setTopBrowserView(this.addressBarView)
@@ -834,6 +859,8 @@ class AppWindow {
   }
 
   openSettings() {
+    this.closeCurrentlyOpenGlobalDialog()
+    this.currentlyOpenGlobalDialog = 'settings'
     this.window.addBrowserView(this.settingsView)
     this.window.setTopBrowserView(this.settingsView)
     this.settingsView.setBounds({
