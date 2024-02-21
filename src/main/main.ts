@@ -1,9 +1,4 @@
 import { ElectronBlocker, fullLists } from '@cliqz/adblocker-electron'
-import { create, insert, remove, type Orama } from '@orama/orama'
-import {
-  afterInsert as highlightAfterInsert,
-  searchWithHighlight,
-} from '@orama/plugin-match-highlight'
 import { createId } from '@paralleldrive/cuid2'
 import { BrowserView, BrowserWindow, app, ipcMain, screen } from 'electron'
 import contextMenu from 'electron-context-menu'
@@ -25,7 +20,6 @@ import { FIND_IN_PAGE_HEIGHT, FIND_IN_PAGE_WIDTH } from '~/shared/constants'
 import { SearchEngine, engineToSearchUrl } from '~/shared/search_engines'
 import { KeyboardShortcuts } from '../shared/keyboard_shortcuts'
 import { ShortcutManager } from './shortcut_manager'
-import { migrateToLatest } from './db/db'
 
 export type Brand<Name extends string, T> = T & { __brand: Name }
 
@@ -179,6 +173,22 @@ class AppWindow {
     const savedTabs = preferencesStore.get('tabs')
     if (savedTabs && Object.entries(savedTabs).length >= 1) {
       const tabsArr = Object.entries(savedTabs)
+        .map(([id, tab]) => {
+          return [
+            id,
+            {
+              id: tab.id,
+              title: tab.title,
+              url: tab.url,
+              favicon: tab.favicon,
+              parent: tab.parent,
+            } as Tab,
+          ] as [string, Tab]
+        })
+        .filter(([_, tab]) => {
+          return !!tab.id && !!tab.url
+        })
+      console.log(tabsArr)
       const tabs = new Map<string, Tab>(tabsArr)
       /*
       tabsArr.map(([_, tab]) => {
@@ -409,10 +419,20 @@ class AppWindow {
       // return parsed?.textContent
     }
 
+    view.webContents.on('did-navigate', async () => {
+      const url = view.webContents.getURL()
+      const title = view.webContents.getTitle()
+      // const content = await getContent(url)
+      this.updateTabConfig(tabId, {
+        title,
+        url,
+      })
+    })
     view.webContents.on('did-navigate-in-page', async () => {
       const url = view.webContents.getURL()
-      const content = await getContent(url)
+      // const content = await getContent(url)
       this.updateTabConfig(tabId, {
+        title: view.webContents.getTitle(),
         url,
       })
     })
@@ -985,7 +1005,7 @@ function createWindow() {
 // initialization and is ready to create browser windows.
 // Some APIs can only be used after this event occurs.
 app.on('ready', async () => {
-  await migrateToLatest()
+  // await migrateToLatest()
   const { id, window } = createWindow()
   windows.set(id, window)
   if (Env.platform.isMac && Env.deploy.isDevelopment) {

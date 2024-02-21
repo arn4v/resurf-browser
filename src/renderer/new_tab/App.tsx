@@ -238,10 +238,14 @@ export function App() {
     return { results, flattened }
   }, [DefaultSearchEngineIcon, defaultSearchEngine, isQueryAUrl, state, tabs])
 
+  useEffect(() => {
+    setSelected(0)
+  }, [flattened])
+
   return (
     <div className='h-full w-full relative dark isolate'>
       <div className='h-full w-full absolute top-0 left-0 bg-black/50 z-10' onClick={handleClose} />
-      <div className='border fixed top-[20%] left-1/2 -translate-x-1/2 border-zinc-900 bg-neutral-900 flex flex-col items-start justify-start shadow-lg w-1/2 lg:w-1/3 max-w-[600px] max-h-[500px] rounded-lg text-sm z-20 text-white relative'>
+      <div className='border fixed top-[20%] left-1/2 -translate-x-1/2 border-zinc-900 bg-neutral-900 flex flex-col items-start justify-start shadow-lg w-1/2 lg:w-1/3 max-w-[600px] h-[500px] rounded-lg text-sm z-20 text-white relative'>
         {/* {MODES_TO_SHOW_INDICATOR_FOR.includes(state.mode) && (
           <div className='absolute left-0 top-0 -translate-y-full mb-4'>
             {MODE_TO_HUMAN_READABLE[state.mode]}
