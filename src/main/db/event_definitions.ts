@@ -1,6 +1,17 @@
 import { NewEvent } from './types'
 
-type EventStruct<T extends Pick<NewEvent, 'event'> & { data: object }> = T
+type EventStruct<
+  T extends {
+    type: string
+  } & (
+    | {
+        data?: never
+      }
+    | {
+        data: object
+      }
+  ),
+> = T
 
 type TabNavigateForward = EventStruct<{
   type: 'tab_navigate_forward'

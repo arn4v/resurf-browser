@@ -89,7 +89,7 @@ function TabItem({
             : 'transition hover:bg-neutral-700',
         )}
         onClick={() => {
-          sendIpcMessage(ControlEmittedEvents.Tabs_UpdateActiveTab, tab.id)
+          ipcRenderer.invoke(ControlEmittedEvents.Tabs_UpdateActiveTab, tab.id)
         }}
       >
         <div

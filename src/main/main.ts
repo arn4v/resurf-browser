@@ -25,6 +25,7 @@ import { FIND_IN_PAGE_HEIGHT, FIND_IN_PAGE_WIDTH } from '~/shared/constants'
 import { SearchEngine, engineToSearchUrl } from '~/shared/search_engines'
 import { KeyboardShortcuts } from '../shared/keyboard_shortcuts'
 import { ShortcutManager } from './shortcut_manager'
+import { migrateToLatest } from './db/db'
 
 export type Brand<Name extends string, T> = T & { __brand: Name }
 
@@ -59,7 +60,6 @@ type StoredPreferences = {
   search_engine: SearchEngine
 }
 const preferencesStore = new Store<StoredPreferences>({
-  name: Date.now().toString(),
   defaults: {
     active_tab: null,
     tabs: {},
@@ -152,9 +152,13 @@ class AppWindow {
     this.addressBarView = this.createBrowserViewForControlInterface('address_bar')
     this.settingsView = this.createBrowserViewForControlInterface('settings')
     this.newTabView = this.createBrowserViewForControlInterface('new_tab')
-    if (Env.deploy.isDevelopment) this.addressBarView.webContents.openDevTools({ mode: 'detach' })
-    if (Env.deploy.isDevelopment) this.settingsView.webContents.openDevTools({ mode: 'detach' })
-    if (Env.deploy.isDevelopment) this.newTabView.webContents.openDevTools({ mode: 'detach' })
+    if (Env.deploy.isDevelopment) {
+      setTimeout(() => {
+        this.addressBarView.webContents.openDevTools({ mode: 'detach' })
+        this.settingsView.webContents.openDevTools({ mode: 'detach' })
+        this.newTabView.webContents.openDevTools({ mode: 'detach' })
+      }, 1)
+    }
 
     this.shortcutManager = new ShortcutManager(this.window)
     this.registerShortcuts()
@@ -606,11 +610,8 @@ class AppWindow {
     ipcMain.on(ControlEmittedEvents.Tabs_CloseTab, (event, tabId: string) => {
       this.closeTab(tabId)
     })
-    ipcMain.on(ControlEmittedEvents.Tabs_UpdateActiveTab, (_, tabId: string) => {
-      const start = Date.now()
+    ipcMain.handle(ControlEmittedEvents.Tabs_UpdateActiveTab, (_, tabId: string) => {
       this.setActiveTab(tabId)
-      const end = Date.now()
-      console.log(`setActiveTab took ${(end - start) / 1000}s`)
     })
   }
 
@@ -715,6 +716,7 @@ class AppWindow {
     this.newTabOpen = false
     this.window.removeBrowserView(this.newTabView)
     this.newTabView.webContents.send(NewTabEvents.Reset)
+    this.newTabView.webContents.reload()
     // if (Env.deploy.isDevelopment) this.newTabView.webContents.closeDevTools()
   }
   toggleNewTabPopup() {
@@ -737,38 +739,37 @@ class AppWindow {
       this.closeNewTabPopup()
     })
 
-    ipcMain.handle(NewTabEvents.Search, async (_, query) => {
-      // const { hits } = await this.searchOpenTabs(query)
-      // return {
-      //   tabs: hits,
-      // }
-    })
-    // ipcMain.handle(
-    //   NewTabEvents.Go,
-    //   (
-    //     _,
-    //     {}: {
-    //       urlOrQuery: string
-    //     },
-    //   ) => {
-    //     this.closeNewTab()
-    //     if (!this.activeTab) return
-    //     const result = parse(urlOrSearchQuery)
-    //     let url
-    //     if (result.domain && result.isIcann) {
-    //       url = urlOrSearchQuery.startsWith('http')
-    //         ? urlOrSearchQuery
-    //         : 'http://' + urlOrSearchQuery
-    //       this.getActiveView()?.webContents.loadURL(url)
-    //     } else {
-    //       const searchQuery = encodeURIComponent(urlOrSearchQuery)
-    //       url = `https://www.google.com/search?q=${searchQuery}`
-    //       this.getActiveView()?.webContents.loadURL(url)
-    //     }
-    //     this.updateTabConfig(this.activeTab, { url })
-    //   },
-    // )
+    ipcMain.handle(
+      NewTabEvents.Go,
+      (_, urlOrSearchQuery: string, newTab = false, searchEngineOverride: SearchEngine) => {
+        if (!this.activeTab) return
+        let url
+        if (searchEngineOverride) {
+          url = `${engineToSearchUrl[searchEngineOverride]}${encodeURIComponent(urlOrSearchQuery)}`
+        } else {
+          const result = parse(urlOrSearchQuery)
+          if (result.domain && result.isIcann) {
+            url = urlOrSearchQuery.startsWith('http')
+              ? urlOrSearchQuery
+              : 'http://' + urlOrSearchQuery
+          } else {
+            console.log(
+              engineToSearchUrl[preferencesStore.get('search_engine') || SearchEngine.Google],
+            )
+            const searchQuery = encodeURIComponent(urlOrSearchQuery)
+            url = `${engineToSearchUrl[preferencesStore.get('search_engine') || SearchEngine.Google]}${searchQuery}`
+          }
+        }
+        if (newTab) {
+          this.newTab(url, true)
+        } else {
+          this.getActiveView()?.webContents.loadURL(url)
+        }
+        this.updateTabConfig(this.activeTab, { url })
+      },
+    )
   }
+
   /* -------------------------------------------------------------------------- */
   /*                                 ADDRESS BAR                                */
   /* -------------------------------------------------------------------------- */
@@ -959,7 +960,8 @@ function createWindow() {
 // This method will be called when Electron has finished
 // initialization and is ready to create browser windows.
 // Some APIs can only be used after this event occurs.
-app.on('ready', () => {
+app.on('ready', async () => {
+  await migrateToLatest()
   const { id, window } = createWindow()
   windows.set(id, window)
   if (Env.platform.isMac && Env.deploy.isDevelopment) {

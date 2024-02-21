@@ -1,22 +1,16 @@
-import { Database } from './types'
 import SQLite from 'better-sqlite3'
+import { app } from 'electron'
 import {
   Kysely,
-  SqliteDialect,
-  MigrationProvider,
   Migration,
+  MigrationProvider,
   Migrator,
   ParseJSONResultsPlugin,
-  KyselyPlugin,
-  PluginTransformQueryArgs,
-  RootOperationNode,
-  PluginTransformResultArgs,
-  QueryResult,
-  UnknownRow,
+  SqliteDialect,
 } from 'kysely'
-import * as migration_001 from './migrations/001'
-import { app } from 'electron'
 import path from 'path'
+import * as migration_001 from './migrations/001'
+import { Database } from './types'
 
 export type DbInstance = Kysely<Database>
 
@@ -24,9 +18,13 @@ export function getDatabaseLocation() {
   return path.join(app.getPath('userData'), 'resurf.db')
 }
 
+function getSqlite() {
+  return new SQLite(getDatabaseLocation())
+}
+
 export function createDb() {
   const dialect = new SqliteDialect({
-    database: new SQLite(getDatabaseLocation()),
+    database: getSqlite(),
   })
 
   return new Kysely<Database>({
@@ -53,7 +51,7 @@ class CustomMigrationProvider implements MigrationProvider {
   }
 }
 
-async function migrateToLatest() {
+export async function migrateToLatest() {
   const db = createDb()
 
   const migrator = new Migrator({
@@ -84,5 +82,3 @@ async function migrateToLatest() {
 
   await db.destroy()
 }
-
-migrateToLatest()
