@@ -1,8 +1,9 @@
 import { Command } from 'cmdk'
+import * as tldts from 'tldts'
 import { GlobeIcon, LinkIcon, SearchIcon } from 'lucide-react'
 import { Fragment, useEffect, useMemo, useReducer, useRef, useState } from 'react'
 import Highlighter from 'react-highlight-words'
-import { useDidMount } from 'rooks'
+import { useDidMount, usePreviousDifferent, usePreviousImmediate } from 'rooks'
 import scrollIntoViewIfNeeded from 'scroll-into-view-if-needed'
 import { useEventListener } from 'usehooks-ts'
 import { z } from 'zod'
@@ -42,28 +43,20 @@ const MODE_TO_HUMAN_READABLE: Record<OmnibarMode, string> = {
   // [OmnibarMode.History]: 'History',
 }
 
-interface HistoryResult {
-  title: string
-  content: string
-}
-
-interface SearchResults {
-  tabs: Tab[]
-}
-
-const INITIAL_RESULTS: SearchResults = {
-  tabs: [],
-}
-
 interface State {
   query: string
   mode: OmnibarMode
   searchModeEngine: SearchEngine | null
-  results: SearchResults
   allTabs: Tab[]
 }
 
 const urlSchema = z.string().url()
+function isUrl(url: string) {
+  if (urlSchema.safeParse(url).success) return true
+  const parsed = tldts.parse(url)
+  if (parsed.domain && parsed.isIcann) return true
+  return false
+}
 
 export function App() {
   const [selected, setSelected] = useState(0)
@@ -78,7 +71,6 @@ export function App() {
       allTabs: [],
       mode: OmnibarMode.All,
       query: '',
-      results: INITIAL_RESULTS,
       searchModeEngine: null,
     } satisfies State,
   )
@@ -97,7 +89,10 @@ export function App() {
   //   return fuse.search(debouncedQuery)
   // }, [debouncedQuery])
   const [defaultSearchEngine, setDefaultSearchEngine] = useState<SearchEngine>(SearchEngine.Google)
-  const DefaultSearchEngineIcon = SEARCH_ENGINE_TO_ICON[defaultSearchEngine]
+  const DefaultSearchEngineIcon = useMemo(
+    () => SEARCH_ENGINE_TO_ICON[defaultSearchEngine],
+    [defaultSearchEngine],
+  )
 
   function handleClose() {
     ipcRenderer.invoke(NewTabEvents.Close)
@@ -122,59 +117,7 @@ export function App() {
   //   })()
   // }, [debouncedQuery])
 
-  function handleSelectItem(index = selected) {
-    const selectedItem = flattened[index]
-    if ('command' in selectedItem) {
-      selectedItem?.command()
-      handleClose()
-    } else {
-      ipcRenderer.invoke(ControlEmittedEvents.Tabs_UpdateActiveTab, selectedItem.id)
-      handleClose()
-    }
-  }
-
-  useEventListener('keydown', (e) => {
-    if (e.key === 'Escape') {
-      handleClose()
-    }
-  })
-  useEventListener(
-    'keydown',
-    (e) => {
-      if (e.key === 'ArrowUp') {
-        e.preventDefault()
-        const newIndex = selected == 0 ? flattened.length - 1 : selected - 1
-        setSelected(newIndex)
-      } else if (e.key === 'ArrowDown') {
-        e.preventDefault()
-        const newIndex = selected === flattened.length - 1 ? 0 : selected + 1
-        setSelected(newIndex)
-      } else if (e.key === 'Enter') {
-        e.preventDefault()
-        handleSelectItem()
-      }
-    },
-    undefined,
-    { capture: true },
-  )
-  useEffect(() => {
-    const el = document.querySelector(
-      `div[data-tab-search-result="true"][data-search-index="${selected}"]`,
-    )
-    if (el) {
-      scrollIntoViewIfNeeded(el, {
-        scrollMode: 'if-needed',
-        block: 'nearest',
-        inline: 'nearest',
-      })
-    }
-  }, [selected])
-
-  const ModeIcon = state.searchModeEngine
-    ? SEARCH_ENGINE_TO_ICON[state.searchModeEngine]
-    : SearchIcon
-
-  const isQueryAUrl = urlSchema.safeParse(state.query).success
+  const isQueryAUrl = useMemo(() => isUrl(state.query), [state.query])
   const { flattened, results } = useMemo(() => {
     const results = (
       [
@@ -211,7 +154,12 @@ export function App() {
                     {
                       id: 'open_url',
                       command() {
-                        ipcRenderer.invoke(NewTabEvents.Go, state.query, true)
+                        ipcRenderer.invoke(
+                          NewTabEvents.Go,
+                          state.query,
+                          true,
+                          state.searchModeEngine,
+                        )
                       },
                       icon: <LinkIcon className='h-5 w-5' />,
                       title: 'Open URL in New Tab',
@@ -224,7 +172,12 @@ export function App() {
                             id: 'search_on',
                             title: `Search for "${state.query}" on ${engineToTitle[defaultSearchEngine]}`,
                             command() {
-                              ipcRenderer.invoke(NewTabEvents.Go, state.query, true, true)
+                              ipcRenderer.invoke(
+                                NewTabEvents.Go,
+                                state.query,
+                                true,
+                                defaultSearchEngine,
+                              )
                             },
                             icon: <DefaultSearchEngineIcon className='h-5 w-5' />,
                           },
@@ -237,15 +190,71 @@ export function App() {
     const flattened: (Tab | Command)[] = results.map((x) => x.items).flat()
     return { results, flattened }
   }, [DefaultSearchEngineIcon, defaultSearchEngine, isQueryAUrl, state, tabs])
+  const prevFlattened = usePreviousImmediate(flattened)
+
+  function handleSelectItem(index: number) {
+    const selectedItem = flattened[index]
+    if ('command' in selectedItem) {
+      selectedItem?.command()
+      handleClose()
+    } else {
+      ipcRenderer.invoke(ControlEmittedEvents.Tabs_UpdateActiveTab, selectedItem.id)
+      handleClose()
+    }
+  }
 
   useEffect(() => {
-    setSelected(0)
-  }, [flattened])
+    if (!prevFlattened || !prevFlattened.every((a) => !!flattened.find((b) => a.id === b.id))) {
+      setSelected(0)
+    }
+  }, [flattened, prevFlattened])
+
+  useEventListener('keydown', (e) => {
+    if (e.key === 'Escape') {
+      handleClose()
+    }
+  })
+  useEventListener(
+    'keydown',
+    (e) => {
+      if (e.key === 'ArrowUp') {
+        e.preventDefault()
+        const newIndex = selected == 0 ? flattened.length - 1 : selected - 1
+        setSelected(newIndex)
+      } else if (e.key === 'ArrowDown') {
+        e.preventDefault()
+        const newIndex = selected === flattened.length - 1 ? 0 : selected + 1
+        console.log(selected, newIndex, flattened.length)
+        setSelected(newIndex)
+      } else if (e.key === 'Enter') {
+        e.preventDefault()
+        handleSelectItem(selected)
+      }
+    },
+    undefined,
+    { capture: true },
+  )
+  useEffect(() => {
+    const el = document.querySelector(
+      `div[data-tab-search-result="true"][data-search-index="${selected}"]`,
+    )
+    if (el) {
+      scrollIntoViewIfNeeded(el, {
+        scrollMode: 'if-needed',
+        block: 'nearest',
+        inline: 'nearest',
+      })
+    }
+  }, [selected])
+
+  const ModeIcon = state.searchModeEngine
+    ? SEARCH_ENGINE_TO_ICON[state.searchModeEngine]
+    : SearchIcon
 
   return (
-    <div className='h-full w-full relative dark isolate'>
+    <div className='h-full w-full relative isolate'>
       <div className='h-full w-full absolute top-0 left-0 bg-black/50 z-10' onClick={handleClose} />
-      <div className='border fixed top-[20%] left-1/2 -translate-x-1/2 border-zinc-900 bg-neutral-900 flex flex-col items-start justify-start shadow-lg w-1/2 lg:w-1/3 max-w-[600px] h-[500px] rounded-lg text-sm z-20 text-white relative'>
+      <div className='border fixed top-[20%] left-1/2 -translate-x-1/2 border-zinc-900 bg-neutral-900 flex flex-col items-start justify-start shadow-lg min-w-[500px] w-1/2 lg:w-1/3 max-w-[600px] h-[500px] rounded-lg text-sm z-20 text-white relative'>
         {/* {MODES_TO_SHOW_INDICATOR_FOR.includes(state.mode) && (
           <div className='absolute left-0 top-0 -translate-y-full mb-4'>
             {MODE_TO_HUMAN_READABLE[state.mode]}
@@ -299,11 +308,13 @@ export function App() {
             }}
           />
         </label>
-        <div className='flex flex-col grow overflow-y-auto w-full px-2 py-3' tabIndex={-1}>
+        <div className='flex flex-col grow w-full py-3 overflow-y-auto outline-none' tabIndex={-1}>
           {results.map((section, index) => {
             return (
               <Fragment key={section.type}>
-                <div className={cn('ml-3', index !== 0 && 'mt-2')}>{section.heading}</div>
+                <div className={cn('ml-3 text-xs font-semibold mb-2', index !== 0 && 'mt-2')}>
+                  {section.heading}
+                </div>
                 {section.items.map((item) => {
                   const flattenedIndex = flattened.findIndex((flatItem) => flatItem.id === item.id)
                   return (
@@ -376,7 +387,7 @@ function OmnibarItem({
         onClick={onClick}
         onMouseOver={onMouseOver}
         className={cn(
-          'flex items-start px-3 py-2 rounded-lg border border-neutral-800 gap-2 select-none cursor-pointer mt-2',
+          'flex items-start px-3 py-2 border border-neutral-800 gap-2 select-none cursor-pointer',
           isSelected && 'bg-neutral-700',
         )}
       >
@@ -392,7 +403,7 @@ function OmnibarItem({
         onClick={onClick}
         onMouseOver={onMouseOver}
         className={cn(
-          'flex items-start px-3 py-2 rounded-lg border border-neutral-800 gap-2 select-none cursor-pointer mt-2',
+          'flex items-start p-3 border-b border-neutral-500/20 gap-2 select-none cursor-pointer',
           isSelected && 'bg-neutral-700',
         )}
       >

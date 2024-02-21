@@ -17,7 +17,7 @@ import {
 import { Tab, TabsMap } from 'src/shared/tabs'
 import { parse } from 'tldts'
 import { FIND_IN_PAGE_HEIGHT, FIND_IN_PAGE_WIDTH } from '~/shared/constants'
-import { SearchEngine, engineToSearchUrl } from '~/shared/search_engines'
+import { SearchEngine, engineToSearchUrl, engineToTitle } from '~/shared/search_engines'
 import { KeyboardShortcuts } from '../shared/keyboard_shortcuts'
 import { ShortcutManager } from './shortcut_manager'
 
@@ -129,6 +129,8 @@ class AppWindow {
             frame: false,
           }
         : {}),
+      minWidth: 800,
+      minHeight: 800,
       webPreferences: {
         preload: preloadPath,
         nodeIntegration: true,
@@ -147,13 +149,6 @@ class AppWindow {
     this.addressBarView = this.createBrowserViewForControlInterface('address_bar')
     this.settingsView = this.createBrowserViewForControlInterface('settings')
     this.newTabView = this.createBrowserViewForControlInterface('new_tab')
-    if (Env.deploy.isDevelopment) {
-      setTimeout(() => {
-        this.addressBarView.webContents.openDevTools({ mode: 'detach' })
-        this.settingsView.webContents.openDevTools({ mode: 'detach' })
-        this.newTabView.webContents.openDevTools({ mode: 'detach' })
-      }, 1)
-    }
 
     this.shortcutManager = new ShortcutManager(this.window)
     this.registerShortcuts()
@@ -166,7 +161,7 @@ class AppWindow {
 
     setInterval(() => {
       this.persistTabs()
-    }, 1000)
+    }, 2000)
   }
 
   restoreTabsOrCreateBlank() {
@@ -188,7 +183,6 @@ class AppWindow {
         .filter(([_, tab]) => {
           return !!tab.id && !!tab.url
         })
-      console.log(tabsArr)
       const tabs = new Map<string, Tab>(tabsArr)
       /*
       tabsArr.map(([_, tab]) => {
@@ -202,7 +196,7 @@ class AppWindow {
       this.setActiveTab(lastActiveTab)
       this.emitUpdateTabs()
     } else {
-      this.newTab('https://google.com', true)
+      this.createTab('https://google.com', true)
     }
   }
 
@@ -372,8 +366,40 @@ class AppWindow {
       showCopyImage: true,
       showCopyImageAddress: true,
       showSaveImage: true,
-      showSaveLinkAs: true,
+      // showSaveLinkAs: true,
       showInspectElement: true,
+      showCopyLink: true,
+      showSearchWithGoogle: false,
+      prepend: (_, params) => {
+        return [
+          {
+            label: 'Open',
+            visible: params.linkURL.length > 0,
+            click: () => {
+              this.getActiveView()?.webContents.loadURL(params.linkURL)
+            },
+          },
+          {
+            label: 'Open in tree',
+            visible: params.linkURL.length > 0,
+            click: () => {
+              this.createTab(params.linkURL, false, tabId)
+            },
+          },
+          {
+            label: `Search ${engineToTitle[this.defaultSearchEngine]} for “{selection}”`,
+            // Only show it when right-clicking text
+            visible: params.linkURL.length === 0 && params.selectionText.trim().length > 0,
+            click: () => {
+              this.createTab(
+                `${engineToSearchUrl[this.defaultSearchEngine]}${encodeURIComponent(params.selectionText)}`,
+                false,
+                tabId,
+              )
+            },
+          },
+        ]
+      },
     })
 
     view.webContents.loadURL(url ?? 'about:blank')
@@ -439,7 +465,7 @@ class AppWindow {
 
     view.webContents.setWindowOpenHandler(({ disposition, url }) => {
       if (disposition === 'foreground-tab' || disposition === 'background-tab') {
-        this.newTab(url, false, tabId)
+        this.createTab(url, false, tabId)
         return {
           action: 'deny',
         }
@@ -480,6 +506,12 @@ class AppWindow {
         preload: preloadPath,
       },
     })
+    view.setAutoResize({
+      width: true,
+      height: true,
+      horizontal: true,
+      vertical: true,
+    })
     this.loadInternalViewURLOrFile(view, getInternalViewPath(name))
     // view.setBackgroundColor('hsla(0,0,0%,100.0)')
     return view
@@ -490,6 +522,29 @@ class AppWindow {
       view.webContents.loadURL(urlOrFilePath)
     } else {
       view.webContents.loadFile(urlOrFilePath)
+    }
+
+    if (Env.deploy.isDevelopment) {
+      contextMenu({
+        window: view,
+        // showInspectElement: true,
+        menu(_, props) {
+          return [
+            {
+              id: 'inspect',
+              label: 'Inspect Element',
+              click() {
+                if (!view.webContents.isDevToolsOpened()) {
+                  view.webContents.openDevTools({ mode: 'detach' })
+                }
+                view.webContents.devToolsWebContents?.focus()
+                view.webContents.inspectElement(props.x, props.y)
+              },
+            },
+          ]
+        },
+      })
+      // controlView.webContents.openDevTools({ mode: 'detach' })
     }
   }
 
@@ -622,7 +677,7 @@ class AppWindow {
     this.emitUpdateTabs()
   }
 
-  newTab(url?: string, focus?: boolean, parent?: string) {
+  createTab(url?: string, focus?: boolean, parent?: string) {
     if (!url) url = 'about:blank'
     const tabId = createId()
     const tab: Tab = {
@@ -800,8 +855,9 @@ class AppWindow {
             url = `${engineToSearchUrl[searchEngine]}${encodeURIComponent(urlOrSearchQuery)}`
           }
         }
+        console.log(url, searchEngineOverride)
         if (newTab) {
-          this.newTab(url, true)
+          this.createTab(url, true)
         } else {
           this.getActiveView()?.webContents.loadURL(url)
         }
@@ -866,6 +922,10 @@ class AppWindow {
   /* -------------------------------------------------------------------------- */
   settingsView: BrowserView
   settingsOpen = false
+
+  get defaultSearchEngine() {
+    return preferencesStore.get('search_engine')
+  }
 
   toggleSettings() {
     if (!this.settingsOpen) {
@@ -940,8 +1000,6 @@ class AppWindow {
 
     this.window.addBrowserView(controlView)
     this.window.setTopBrowserView(controlView)
-
-    if (Env.deploy.isDevelopment) controlView.webContents.openDevTools({ mode: 'detach' })
   }
 
   getSidebarWidthOrDefault() {

@@ -2,16 +2,10 @@
 @tailwind components;
 @tailwind utilities;
 
-/* :root {
-  scrollbar-gutter: stable;
-} */
-
+html,
+body,
 #root {
   height: 100vh;
-  width: 100%;
-}
-
-#root,
-#__next {
-  isolation: isolate;
+  width: 100vw;
+  overflow: hidden;
 }
