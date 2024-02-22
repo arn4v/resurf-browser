@@ -67,7 +67,7 @@ function getInternalViewPath(view: string) {
   if (CONTROL_UI_VITE_DEV_SERVER_URL) {
     return `${CONTROL_UI_VITE_DEV_SERVER_URL}/${view}/index.html`
   } else {
-    return path.join(__dirname, `../renderer/${CONTROL_UI_VITE_NAME}/${view}/index.html`)
+    return path.join(__dirname, `../renderer/${view}/index.html`)
   }
 }
 

@@ -5,21 +5,21 @@ import tsconfigPaths from 'vite-tsconfig-paths'
 import { pluginExposeRenderer } from './vite.base.config'
 import path from 'path'
 
-const CONTROL_VIEWS = ['new_tab', 'address_bar', 'find', 'not_found', 'settings']
-const rendererPath = path.resolve(__dirname, 'src/renderer')
+const CONTROL_VIEWS = ['new_tab', 'address_bar', 'find', 'sidebar', 'not_found', 'settings']
 
 // https://vitejs.dev/config
 export default defineConfig((env) => {
   const forgeEnv = env as ConfigEnv<'renderer'>
-  const { mode, forgeConfigSelf } = forgeEnv
+  const { root, mode, forgeConfigSelf } = forgeEnv
   const name = forgeConfigSelf.name ?? ''
+  const rendererPath = path.resolve(root, 'src/renderer')
 
   return {
     root: rendererPath,
     mode,
     base: './',
     build: {
-      outDir: `.vite/renderer/${name}`,
+      outDir: path.join(root, `.vite/renderer`),
       rollupOptions: {
         input: {
           main: path.join(rendererPath, './sidebar/index.html'),

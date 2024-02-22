@@ -4,34 +4,15 @@ import { VitePlugin } from '@electron-forge/plugin-vite'
 import { FusesPlugin } from '@electron-forge/plugin-fuses'
 import { FuseV1Options, FuseVersion } from '@electron/fuses'
 import type { ForgeConfig } from '@electron-forge/shared-types'
+import path from 'path'
+import fs from 'fs'
 
 const config: ForgeConfig = {
   packagerConfig: {
     icon: './assets/icon',
     name: 'Resurf',
     executableName: process.platform === 'linux' ? 'resurf-browser' : 'resurfBrowser',
-    // asar: true,
-    //   ignore: [
-    //     '/.git',
-    //     '/.vscode',
-    //     '/src',
-    //     '/assets',
-    //     '/.eslintrc.cjs',
-    //     '/postcss.config.js',
-    //     '/tailwind.config.js',
-    //     '/.gitignore',
-    //     '/vite.preload.config.ts',
-    //     '/tsconfig.json',
-    //     '/components.json',
-    //     '/bun.lockb',
-    //     '/forge.config.ts',
-    //     '/vite.main.config.ts',
-    //     '/vite.vite.config.ts',
-    //     '/vite.renderer.config.ts',
-    //     '/adblock.bin',
-    //     '/vite.renderer.config.ts',
-    //   ],
-    //   prune: true,
+    asar: true,
   },
   rebuildConfig: {},
   makers: [new MakerZIP({}, ['darwin']), new MakerSquirrel({})],
@@ -71,39 +52,39 @@ const config: ForgeConfig = {
   ],
 
   hooks: {
-    // packageAfterPrune: async (forgeConfig, buildPath) => {
-    //   const packageDotJsonPath = path.resolve(buildPath, 'package.json')
-    //   const packageDotJson = fs.readFileSync(packageDotJsonPath)
-    //   const json = JSON.parse(packageDotJson.toString())
-    //   Object.keys(json).forEach((key) => {
-    //     switch (key) {
-    //       case 'name': {
-    //         break
-    //       }
-    //       case 'version': {
-    //         break
-    //       }
-    //       case 'main': {
-    //         break
-    //       }
-    //       case 'author': {
-    //         break
-    //       }
-    //       case 'description': {
-    //         break
-    //       }
-    //       default: {
-    //         delete json[key]
-    //         break
-    //       }
-    //     }
-    //   })
-    //   fs.writeFileSync(packageDotJsonPath, JSON.stringify(json, null, '\t'))
-    // },
-    // readPackageJson: async (_, packageJson) => {
-    //   packageJson['dependencies'] = {}
-    //   return packageJson
-    // },
+    packageAfterPrune: async (forgeConfig, buildPath) => {
+      const packageDotJsonPath = path.resolve(buildPath, 'package.json')
+      const packageDotJson = fs.readFileSync(packageDotJsonPath)
+      const json = JSON.parse(packageDotJson.toString())
+      Object.keys(json).forEach((key) => {
+        switch (key) {
+          case 'name': {
+            break
+          }
+          case 'version': {
+            break
+          }
+          case 'main': {
+            break
+          }
+          case 'author': {
+            break
+          }
+          case 'description': {
+            break
+          }
+          default: {
+            delete json[key]
+            break
+          }
+        }
+      })
+      fs.writeFileSync(packageDotJsonPath, JSON.stringify(json, null, '\t'))
+    },
+    readPackageJson: async (_, packageJson) => {
+      packageJson['dependencies'] = {}
+      return packageJson
+    },
   },
 }
 
