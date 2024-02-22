@@ -330,10 +330,10 @@ class AppWindow {
   getWebviewBounds() {
     const winBounds = this.window.getBounds()
     return {
-      width: normalizeNumber(winBounds.width - this.getSidebarWidth()) + 5,
       height: winBounds.height,
-      x: normalizeNumber(this.getSidebarWidth()),
       y: 0,
+      width: normalizeNumber(winBounds.width - this.getSidebarWidth()) + 5,
+      x: normalizeNumber(this.getSidebarWidth()),
     }
   }
 
@@ -806,28 +806,26 @@ class AppWindow {
     this.window.addBrowserView(this.newTabView)
     this.window.setTopBrowserView(this.newTabView)
     this.newTabView.setBounds({ ...this.window.getBounds(), y: 0 })
+    this.newTabView.webContents.send(NewTabEvents.SignalOpen, {
+      tabs: [...this.tabs.entries()].map((x) => x[1]),
+      activeTab: this.activeTab,
+    })
     this.newTabView.webContents.focus()
-    // if (Env.deploy.isDevelopment) this.newTabView.webContents.openDevTools({ mode: 'detach' })
   }
   closeNewTabPopup() {
     this.newTabOpen = false
     this.window.removeBrowserView(this.newTabView)
     this.newTabView.webContents.send(NewTabEvents.Reset)
-    this.newTabView.webContents.reload()
-    // if (Env.deploy.isDevelopment) this.newTabView.webContents.closeDevTools()
   }
   toggleNewTabPopup() {
     if (this.newTabOpen) {
-      this.closeNewTabPopup()
+      this.newTabView.webContents.send('nt__signal_close')
+      // this.closeNewTabPopup()
     } else {
       this.openNewTabPopup()
     }
   }
   setupNewTabHandlers() {
-    ipcMain.handle(NewTabEvents.GetAllTabs, () => {
-      return [...this.tabs.entries()].map((x) => x[1])
-    })
-
     ipcMain.handle(NewTabEvents.GetDefaultSearchEngine, () => {
       return preferencesStore.get('search_engine')
     })

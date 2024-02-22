@@ -35,7 +35,8 @@ export enum NewTabEvents {
   Reset = 'nt__reset',
   Search = 'nt__search',
   GetDefaultSearchEngine = 'nt__get-default-search-engine',
-  GetAllTabs = 'nt__get-all-tabs',
+  SignalClose = 'nt__signal-close',
+  SignalOpen = 'nt__signal-open',
 }
 
 export enum SettingsDialogEvents {

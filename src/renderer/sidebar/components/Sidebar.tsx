@@ -1,67 +1,100 @@
 import { ChevronDownIcon, ChevronUpIcon, DotIcon, GlobeIcon, Trash2Icon } from 'lucide-react'
 import * as React from 'react'
-import { useDidMount } from 'rooks'
+import scrollIntoView from 'scroll-into-view-if-needed'
+import { ControlEmittedEvents, MainProcessEmittedEvents } from 'src/shared/ipc_events'
+import { Tab, TabsMap } from 'src/shared/tabs'
 import { useIpcListener } from '~/common/hooks/useIpcListener'
 import { sendIpcMessage } from '~/common/lib/ipc'
 import { cn } from '~/common/lib/utils'
-import { ControlEmittedEvents, MainProcessEmittedEvents } from 'src/shared/ipc_events'
-import { Tab, TabsMap } from 'src/shared/tabs'
 
-export function Sidebar() {
+const tabsContext = React.createContext<{
+  tabs: TabsMap | null
+  activeTab: Tab['id'] | null
+  setActiveTab: (id: Tab['id']) => void
+}>(null!)
+
+function TabsProvider({ children }: { children: React.ReactElement }) {
   const [tabs, setTabs] = React.useState<TabsMap | null>(null)
-  const [activeTab, setActiveTab] = React.useState<Tab['id'] | null>(null)
+  const [activeTab, setActiveTabInner] = React.useState<Tab['id'] | null>(null)
+  const activeTabRef = React.useRef(activeTab)
+  activeTabRef.current = activeTab
 
-  useDidMount(() => {
-    sendIpcMessage(ControlEmittedEvents.Tabs_Ready)
-  })
   useIpcListener(MainProcessEmittedEvents.Tabs_UpdateTabs, (_, tabs: TabsMap) => {
     setTabs(tabs)
   })
-  useIpcListener(MainProcessEmittedEvents.TabsUpdateActiveTab, (_, activeTab: Tab['id']) => {
-    setActiveTab(activeTab)
+  useIpcListener(MainProcessEmittedEvents.TabsUpdateActiveTab, (_, newActiveTab: Tab['id']) => {
+    console.log(activeTabRef.current, newActiveTab)
+    if (activeTabRef.current === newActiveTab) return
+    setActiveTabInner(activeTab)
+    if (activeTab) {
+      const tabEl = document.querySelector(`li[data-tab-id="${newActiveTab}"]`)
+      if (tabEl) {
+        scrollIntoView(tabEl, {
+          behavior: 'smooth',
+          block: 'nearest',
+          inline: 'start',
+        })
+      }
+    }
   })
 
+  function setActiveTab(id: Tab['id']) {
+    activeTabRef.current = id
+    setActiveTabInner(id)
+    ipcRenderer.invoke(ControlEmittedEvents.Tabs_UpdateActiveTab, id)
+  }
+
   return (
-    <div className='h-full w-full shadow-inner bg-neutral-800 text-white overflow-y-auto overflow-x-hidden scrollbar-track-zinc-700 scrollbar-thumb-zinc-500 scrollbar-thin pb-8 border-r border-neutral-700'>
-      <div
-        className='h-8 w-full'
-        style={{
-          // eslint-disable-next-line
-          // @ts-ignore
-          '-webkit-app-region': 'drag',
-        }}
-      />
-      <Tabs tabs={tabs || {}} activeTab={activeTab} />
-    </div>
+    <tabsContext.Provider
+      value={{
+        activeTab,
+        setActiveTab,
+        tabs,
+      }}
+    >
+      {children}
+    </tabsContext.Provider>
   )
 }
 
-function Tabs({ tabs: tabsMap, activeTab }: { tabs: TabsMap; activeTab: Tab['id'] | null }) {
+export function Sidebar() {
+  return (
+    <TabsProvider>
+      <div className='h-full w-full shadow-inner bg-neutral-800 text-white overflow-y-auto overflow-x-hidden scrollbar-track-zinc-700 scrollbar-thumb-zinc-500 scrollbar-thin pb-8 border-r border-neutral-700'>
+        <div
+          className='h-8 w-full'
+          style={{
+            // eslint-disable-next-line
+            // @ts-ignore
+            '-webkit-app-region': 'drag',
+          }}
+        />
+        <Tabs />
+      </div>
+    </TabsProvider>
+  )
+}
+
+function Tabs() {
+  const { tabs: tabsMap } = React.useContext(tabsContext)
+
   const { tabs, topLevelTabs } = React.useMemo(() => {
-    const tabs = Object.values(tabsMap)
+    const tabs = Object.values(tabsMap || {})
     return { tabs, topLevelTabs: tabs.filter((tab) => !tab.parent) }
   }, [tabsMap])
 
   return (
     <ul className='max-w-[calc(100%-8px)] flex flex-col gap-1 overflow-x-clip pl-3 scrollbar-thin scrollbar-thumb-zinc-600 scrollbar-track-zinc-800'>
       {topLevelTabs.map((parent) => {
-        return <TabItem key={parent.id} tab={parent} tabs={tabs} activeTab={activeTab} />
+        return <TabItem key={parent.id} tab={parent} tabs={tabs} />
       })}
     </ul>
   )
 }
 
-function TabItem({
-  tab,
-  tabs,
-  activeTab,
-  depth = 0,
-}: {
-  tabs: Tab[]
-  tab: Tab
-  activeTab: Tab['id'] | null
-  depth?: number
-}) {
+function TabItem({ tab, tabs, depth = 0 }: { tabs: Tab[]; tab: Tab; depth?: number }) {
+  const { setActiveTab, activeTab } = React.useContext(tabsContext)
+  console.log(activeTab)
   const [expanded, setExpanded] = React.useState(true)
   const children = React.useMemo(
     () =>
@@ -75,6 +108,7 @@ function TabItem({
   return (
     <li
       data-depth={depth}
+      data-tab-id={tab.id}
       className='max-w-full'
       key={tab.id}
       style={{
@@ -89,7 +123,7 @@ function TabItem({
             : 'transition hover:bg-neutral-700',
         )}
         onClick={() => {
-          ipcRenderer.invoke(ControlEmittedEvents.Tabs_UpdateActiveTab, tab.id)
+          setActiveTab(tab.id)
         }}
       >
         <div
