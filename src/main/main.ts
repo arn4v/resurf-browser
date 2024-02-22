@@ -3,7 +3,6 @@ import { createId } from '@paralleldrive/cuid2'
 import { BrowserView, BrowserWindow, app, ipcMain, screen } from 'electron'
 import contextMenu from 'electron-context-menu'
 import Store from 'electron-store'
-import isOnline from 'is-online'
 import { promises as fs } from 'node:fs'
 import path from 'path'
 import {
@@ -65,10 +64,10 @@ const preferencesStore = new Store<StoredPreferences>({
 })
 
 function getInternalViewPath(view: string) {
-  if (MAIN_WINDOW_VITE_DEV_SERVER_URL) {
-    return `${MAIN_WINDOW_VITE_DEV_SERVER_URL}/${view}/index.html`
+  if (CONTROL_UI_VITE_DEV_SERVER_URL) {
+    return `${CONTROL_UI_VITE_DEV_SERVER_URL}/${view}/index.html`
   } else {
-    return path.join(__dirname, `../renderer/${MAIN_WINDOW_VITE_NAME}/${view}/index.html`)
+    return path.join(__dirname, `../renderer/${CONTROL_UI_VITE_NAME}/${view}/index.html`)
   }
 }
 
@@ -476,23 +475,23 @@ class AppWindow {
       }
     })
 
-    view.webContents.on(
-      'did-fail-load',
-      async (_, errorCode, errorDescription, validatedURL, isMainFrame) => {
-        if (isMainFrame && errorDescription === 'ERR_CONNECTION_REFUSED') {
-          const notFoundUrl =
-            getInternalViewPath('not_found') +
-            `?reason=${(await isOnline()) ? 'offline' : 'dead-link'}`
+    // view.webContents.on(
+    //   'did-fail-load',
+    //   async (_, errorCode, errorDescription, validatedURL, isMainFrame) => {
+    //     if (isMainFrame && errorDescription === 'ERR_CONNECTION_REFUSED') {
+    //       const notFoundUrl =
+    //         getInternalViewPath('not_found') +
+    //         `?reason=${(await isOnline()) ? 'offline' : 'dead-link'}`
 
-          this.loadInternalViewURLOrFile(view, notFoundUrl)
+    //       this.loadInternalViewURLOrFile(view, notFoundUrl)
 
-          this.updateTabConfig(tabId, {
-            title: this.tabs.get(tabId)?.url,
-            favicon: undefined,
-          })
-        }
-      },
-    )
+    //       this.updateTabConfig(tabId, {
+    //         title: this.tabs.get(tabId)?.url,
+    //         favicon: undefined,
+    //       })
+    //     }
+    //   },
+    // )
 
     return view
   }
@@ -518,7 +517,7 @@ class AppWindow {
   }
 
   loadInternalViewURLOrFile(view: BrowserView, urlOrFilePath: string) {
-    if (MAIN_WINDOW_VITE_DEV_SERVER_URL) {
+    if (CONTROL_UI_VITE_DEV_SERVER_URL) {
       view.webContents.loadURL(urlOrFilePath)
     } else {
       view.webContents.loadFile(urlOrFilePath)
