@@ -1,19 +1,19 @@
 export enum ControlEmittedEvents {
-  SidebarReady = 'sidebar-ready',
+  GetInitialState = 'sidebar__get-initial-state',
   SidebarUpdateWidth = 'sidebar-update-width',
-  Tabs_Ready = 'tabs-ready',
-  Tabs_UpdateActiveTab = 'tabs_update-active-tab',
-  Tabs_CloseTab = 'tabs_close-tab',
+  UpdateActiveTab = 'tabs_update-active-tab',
+  CloseTab = 'tabs_close-tab',
+  GetInitialSidebarWidth = 'set-initial-sidebar-width',
 }
 
 export enum MainProcessEmittedEvents {
-  Tabs_UpdateTabs = 'tabs_update-tabs',
-  TabsUpdateActiveTab = 'update-active-tab',
-  SidebarSetInitialWidth = 'set-initial-sidebar-width',
-  NewTabDialogToggle = 'toggle-new-tab-dialog',
+  UpdateTabs = 'tabs_update-tabs',
+  UpdateActiveTab = 'update-active-tab',
+
   FindInPage_Update = 'find-in-page__update',
   FindInPage_SetInitial = 'find-in-page__set-initial',
   FindInPage_StartHiding = 'find-in-page_start-hiding',
+
   NotFound_SetReason = 'not-found_set-reason',
 }
 
@@ -37,6 +37,8 @@ export enum NewTabEvents {
   GetDefaultSearchEngine = 'nt__get-default-search-engine',
   SignalClose = 'nt__signal-close',
   SignalOpen = 'nt__signal-open',
+  CopyTabUrl = 'nt__copy-tab-url',
+  CloseTab = 'nt__close-tab',
 }
 
 export enum SettingsDialogEvents {
@@ -44,6 +46,8 @@ export enum SettingsDialogEvents {
   SetAdblockValue = 'settings__set-adblock-value',
   GetDefaultSearchEngine = 'settings__get-default-search-engine',
   SetDefaultSearchEngine = 'settings__set-default-search-engine',
+  GetTabCloseBehavior = 'settings__get-tab-close-behavior',
+  SetTabCloseBehavior = 'settings__set-tab-close-behavior',
   Close = 'settings__close',
 }
 

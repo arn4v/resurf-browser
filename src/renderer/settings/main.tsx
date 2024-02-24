@@ -1,31 +1,46 @@
-import { createRoot } from 'react-dom/client'
-import '../common/globals.css'
-import { SettingsDialogEvents } from '~/shared/ipc_events'
-import { Settings, XIcon } from 'lucide-react'
-import { Switch } from '~/common/ui/switch'
-import { useDidMount } from 'rooks'
+import { XIcon } from 'lucide-react'
 import * as React from 'react'
+import { createRoot } from 'react-dom/client'
+import { useDidMount } from 'rooks'
 import { Select } from '~/common/ui/select'
+import { Switch } from '~/common/ui/switch'
+import { SettingsDialogEvents } from '~/shared/ipc_events'
 import { SearchEngine, engineToTitle } from '~/shared/search_engines'
+import '../common/globals.css'
 
 const container = document.getElementById('root') as HTMLDivElement
 const root = createRoot(container)
 
+interface SettingsState {
+  adblockEnabled: boolean
+  searchEngine: SearchEngine | undefined
+  tabCloseBehavior: 'cascade' | 'elevate' | undefined
+}
+
 function App() {
-  const [adblockEnabled, setAdblockEnabled] = React.useState(false)
-  const [searchEngine, setSearchEngine] = React.useState<SearchEngine | undefined>(undefined)
+  const [state, dispatch] = React.useReducer(
+    (current: SettingsState, partial: Partial<SettingsState>) => {
+      return {
+        ...current,
+        ...partial,
+      }
+    },
+    {
+      adblockEnabled: false,
+      searchEngine: undefined,
+      tabCloseBehavior: undefined,
+    } satisfies SettingsState,
+  )
 
   useDidMount(async () => {
-    await Promise.all([
-      (async () => {
-        const adblockEnabled = await ipcRenderer.invoke(SettingsDialogEvents.GetAdblockValue)
-        setAdblockEnabled(adblockEnabled)
-      })(),
-      (async () => {
-        const searchEngine = await ipcRenderer.invoke(SettingsDialogEvents.GetDefaultSearchEngine)
-        setSearchEngine(searchEngine)
-      })(),
-    ])
+    const adblockEnabled = await ipcRenderer.invoke<boolean>(SettingsDialogEvents.GetAdblockValue)
+    const searchEngine = await ipcRenderer.invoke<SearchEngine>(
+      SettingsDialogEvents.GetDefaultSearchEngine,
+    )
+    dispatch({
+      adblockEnabled,
+      searchEngine,
+    })
   })
 
   function handleClose() {
@@ -50,13 +65,10 @@ function App() {
             <span className='text-zinc-400 text-sm'>Block ads and trackers on websites</span>
           </div>
           <Switch
-            checked={adblockEnabled}
-            onCheckedChange={() => {
-              setAdblockEnabled((prev) => {
-                const newVal = !prev
-                ipcRenderer.invoke(SettingsDialogEvents.SetAdblockValue, newVal)
-                return newVal
-              })
+            checked={state.adblockEnabled}
+            onCheckedChange={(checked) => {
+              ipcRenderer.invoke(SettingsDialogEvents.SetAdblockValue, checked)
+              dispatch({ adblockEnabled: checked })
             }}
           />
         </div>
@@ -67,10 +79,10 @@ function App() {
           </div>
           <Select.Root
             onValueChange={(v: SearchEngine) => {
-              setSearchEngine(v)
+              dispatch({ searchEngine: v })
               ipcRenderer.invoke(SettingsDialogEvents.SetDefaultSearchEngine, v)
             }}
-            value={searchEngine}
+            value={state.searchEngine}
             defaultValue={SearchEngine.Google}
           >
             <Select.Trigger className='w-[180px]'>
@@ -84,6 +96,28 @@ function App() {
                   </Select.Item>
                 )
               })}
+            </Select.Content>
+          </Select.Root>
+        </div>
+        <div className='flex flex-col w-full py-2 gap-4'>
+          <span className='text-md font-medium'>Tab Close Behavior</span>
+          <Select.Root
+            onValueChange={(value: string) => {
+              dispatch({ tabCloseBehavior: value as SettingsState['tabCloseBehavior'] })
+              ipcRenderer.invoke(
+                SettingsDialogEvents.SetTabCloseBehavior,
+                value as SettingsState['tabCloseBehavior'],
+              )
+            }}
+            value={state.tabCloseBehavior}
+            defaultValue={SearchEngine.Google}
+          >
+            <Select.Trigger className='w-full'>
+              <Select.Value placeholder='Tab Close Behavior' className='dark:bg-zinc-900' />
+            </Select.Trigger>
+            <Select.Content>
+              <Select.Item value='cascade'>Close entire tree/subtree</Select.Item>
+              <Select.Item value='elevate'>Elevate to parent level</Select.Item>
             </Select.Content>
           </Select.Root>
         </div>

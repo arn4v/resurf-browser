@@ -1,12 +1,13 @@
 import { Command } from 'cmdk'
-import * as tldts from 'tldts'
-import { GlobeIcon, LinkIcon, SearchIcon } from 'lucide-react'
+import { GlobeIcon, Link2Icon, LinkIcon, SearchIcon, XCircleIcon } from 'lucide-react'
 import { Fragment, useCallback, useEffect, useMemo, useReducer, useRef, useState } from 'react'
 import Highlighter from 'react-highlight-words'
-import { useDidMount, usePreviousDifferent, usePreviousImmediate } from 'rooks'
+import { usePreviousImmediate } from 'rooks'
 import scrollIntoViewIfNeeded from 'scroll-into-view-if-needed'
+import * as tldts from 'tldts'
 import { useEventListener } from 'usehooks-ts'
 import { z } from 'zod'
+import { useIpcListener } from '~/common/hooks/useIpcListener'
 import useFuse from '~/common/hooks/use_fuse'
 import { cn, waitOneTick } from '~/common/lib/utils'
 import { BingLogo } from '~/common/logos/Bing'
@@ -16,7 +17,6 @@ import { PerplexityLogo } from '~/common/logos/Perplexity'
 import { ControlEmittedEvents, NewTabEvents } from '~/shared/ipc_events'
 import { SearchEngine, engineToShortcode, engineToTitle } from '~/shared/search_engines'
 import { Tab } from '~/shared/tabs'
-import { useIpcListener } from '~/common/hooks/useIpcListener'
 
 enum OmnibarMode {
   All = 'all',
@@ -134,23 +134,50 @@ export function App() {
   //   })()
   // }, [debouncedQuery])
 
+  const activeTabTitle = state.allTabs.find((t) => t.id === state.activeTab)?.title || null
   const isQueryAUrl = useMemo(() => isUrl(state.query), [state.query])
   const { flattened, results } = useMemo(() => {
     const results = (
       [
         {
+          heading: 'Tab Actions',
+          type: 'commands',
+          enabled: !isQueryAUrl || state.mode !== OmnibarMode.SearchEngine,
+          items: [
+            {
+              id: 'copy_url',
+              title: `Copy URL`,
+              icon: <Link2Icon className='h-5 w-5' />,
+              command() {
+                void ipcRenderer.invoke(NewTabEvents.CopyTabUrl, state.activeTab)
+              },
+            },
+            {
+              id: 'close_tab',
+              icon: <XCircleIcon className='h-5 w-5' />,
+              title: `Close ${activeTabTitle ? `"${activeTabTitle}"` : 'Tab'}`,
+              command() {
+                void ipcRenderer.invoke(NewTabEvents.CloseTab, state.activeTab)
+              },
+            },
+          ],
+        },
+        {
           heading: 'Open Tabs',
           type: 'open_tabs',
-          items: isQueryAUrl || state.mode === OmnibarMode.SearchEngine ? [] : tabs,
+          enabled: !isQueryAUrl && state.mode !== OmnibarMode.SearchEngine,
+          items: state.query.length ? tabs : state.allTabs,
         },
         {
           type: 'history',
           heading: 'History',
-          items: isQueryAUrl || state.mode === OmnibarMode.SearchEngine ? [] : [],
+          enabled: !isQueryAUrl || state.mode !== OmnibarMode.SearchEngine,
+          items: [],
         },
         {
           heading: 'Commands',
           type: 'commands',
+          enabled: true,
           items:
             state.mode === OmnibarMode.SearchEngine && state.searchModeEngine
               ? [
@@ -203,10 +230,21 @@ export function App() {
                   ],
         },
       ] satisfies OmnibarResults[]
-    ).filter((section) => section.items.length > 0)
+    ).filter((section) => section.items.length > 0 && section.enabled)
     const flattened: (Tab | Command)[] = results.map((x) => x.items).flat()
     return { results, flattened }
-  }, [DefaultSearchEngineIcon, defaultSearchEngine, isQueryAUrl, state, tabs])
+  }, [
+    DefaultSearchEngineIcon,
+    activeTabTitle,
+    defaultSearchEngine,
+    isQueryAUrl,
+    state.activeTab,
+    state.allTabs,
+    state.mode,
+    state.query,
+    state.searchModeEngine,
+    tabs,
+  ])
   const prevFlattened = usePreviousImmediate(flattened)
 
   function handleSelectItem(index: number) {
@@ -215,7 +253,7 @@ export function App() {
       selectedItem?.command()
       handleClose()
     } else {
-      ipcRenderer.invoke(ControlEmittedEvents.Tabs_UpdateActiveTab, selectedItem.id)
+      ipcRenderer.invoke(ControlEmittedEvents.UpdateActiveTab, selectedItem.id)
       handleClose()
     }
   }
@@ -457,16 +495,19 @@ type OmnibarResults =
   | {
       type: 'open_tabs'
       heading: string
+      enabled: boolean
       items: Tab[]
     }
   | {
       type: 'history'
       heading: string
+      enabled: boolean
       items: Tab[]
     }
   | {
       type: 'commands'
       heading: string
+      enabled: boolean
       items: Array<Command>
     }
 

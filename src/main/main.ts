@@ -1,6 +1,6 @@
 import { ElectronBlocker, fullLists } from '@cliqz/adblocker-electron'
 import { createId } from '@paralleldrive/cuid2'
-import { BrowserView, BrowserWindow, app, ipcMain, screen } from 'electron'
+import { app, BrowserView, BrowserWindow, clipboard, ipcMain, screen } from 'electron'
 import contextMenu from 'electron-context-menu'
 import Store from 'electron-store'
 import { promises as fs } from 'node:fs'
@@ -16,9 +16,10 @@ import {
 import { Tab, TabsMap } from 'src/shared/tabs'
 import { parse } from 'tldts'
 import { FIND_IN_PAGE_HEIGHT, FIND_IN_PAGE_WIDTH } from '~/shared/constants'
-import { SearchEngine, engineToSearchUrl, engineToTitle } from '~/shared/search_engines'
+import { engineToSearchUrl, engineToTitle, SearchEngine } from '~/shared/search_engines'
 import { KeyboardShortcuts } from '../shared/keyboard_shortcuts'
 import { ShortcutManager } from './shortcut_manager'
+import _ from 'underscore'
 
 export type Brand<Name extends string, T> = T & { __brand: Name }
 
@@ -51,6 +52,7 @@ type StoredPreferences = {
   active_tab: string | null
   adblock_enabled: boolean
   search_engine: SearchEngine
+  tab_close_behavior: 'cascade' | 'elevate'
 }
 const preferencesStore = new Store<StoredPreferences>({
   defaults: {
@@ -58,6 +60,7 @@ const preferencesStore = new Store<StoredPreferences>({
     tabs: {},
     adblock_enabled: true,
     search_engine: SearchEngine.Google,
+    tab_close_behavior: 'elevate',
     sidebar_width: 20,
     window_bounds: null,
   },
@@ -566,48 +569,89 @@ class AppWindow {
     this.setActiveTab(newActiveTabId)
   }
 
-  closeTab(tabId: Tab['id']) {
-    // Get a sorted array of the tab IDs
-    const tabsArray = Array.from(this.tabs.keys())
+  getParentToChildrenMap() {
+    return Array.from(this.tabs.entries()).reduce(
+      (acc, [_, tab]) => {
+        const parent = tab.parent
+        if (parent) {
+          if (!acc[parent]) acc[parent] = []
+          acc[parent].push(tab.id)
+        }
+        return acc
+      },
+      {} as Record<string, string[]>,
+    )
+  }
 
-    // Find the index of the tab to be closed
-    const closingTabIndex = tabsArray.indexOf(tabId)
+  getTabsInTree(rootId: string): string[] {
+    const parentToChildrenMap = this.getParentToChildrenMap()
+    const result: string[] = []
 
-    // Only proceed if the tab is found
-    if (closingTabIndex !== -1) {
-      // Determine the new active tab if the closing tab is the current active tab
-      if (this.activeTab === tabId) {
-        // Calculate the new active tab index
-        let newActiveTabIndex = closingTabIndex === 0 ? 1 : closingTabIndex - 1
-
-        // Ensure the new index is within the bounds of the tabs array
-        newActiveTabIndex = Math.min(Math.max(newActiveTabIndex, 0), tabsArray.length - 1)
-
-        // Get the new active tab ID
-        const newActiveTabId = tabsArray[newActiveTabIndex]
-
-        // Set and show the new active tab
-        this.setActiveTab(newActiveTabId)
+    const traverse = (id: string) => {
+      result.push(id)
+      const children = parentToChildrenMap[id]
+      if (children) {
+        children.forEach(traverse)
       }
+    }
 
-      // Remove the closing tab from the data structures and UI
+    traverse(rootId)
+    return result
+  }
+
+  closeTab(rootId: string) {
+    if (!this.tabs.has(rootId)) return // Exit if the tab is not found
+
+    const tabs = Array.from(this.tabs.entries())
+    const tabIds = Array.from(this.tabs.keys())
+
+    let tabsToClose: string[] = [rootId]
+
+    if (this.tabCloseBehavior === 'cascade') {
+      tabsToClose = this.getTabsInTree(rootId)
+    }
+
+    // Remove the tabs and their associated resources
+    tabsToClose.forEach((tabId) => {
       const browserView = this.tabToBrowserView.get(tabId)
       if (browserView) {
         this.window.removeBrowserView(browserView)
-        browserView.webContents.close() // Ensure the BrowserView is properly cleaned up
+        browserView.webContents.close()
       }
       this.tabToBrowserView.delete(tabId)
       this.tabs.delete(tabId)
       this.destroyFindInPageForTab(tabId)
+    })
 
-      // Update the UI to reflect the new state of the tabs
-      this.emitUpdateTabs()
+    const clamp = (n: number, min: number, max: number) => Math.min(Math.max(n, min), max)
 
-      const newActiveView = this.tabToBrowserView.get(tabId)
-      if (newActiveView) {
-        newActiveView.webContents.focus() // This will focus the BrowserView's contents
-      }
+    const newActiveTab =
+      this.tabCloseBehavior === 'cascade'
+        ? tabs[
+            clamp(
+              _.filter(tabIds, _.filter(tabsToClose, rootId)).indexOf(rootId) + 1,
+              0,
+              tabs.length - 1,
+            )
+          ][0]
+        : tabs.filter(([_, x]) => x?.parent === rootId)[0][0]
+    this.setActiveTab(newActiveTab)
+    const newActiveView = this.tabToBrowserView.get(newActiveTab)
+    if (newActiveView) {
+      newActiveView.webContents.focus()
     }
+
+    // If the tab close behavior is 'elevate', update the parent property for the children
+    if (this.tabCloseBehavior === 'elevate') {
+      this.tabs.forEach((tab, tabId) => {
+        if (tab.parent === rootId) {
+          this.updateTabConfig(tabId, { parent: undefined })
+        }
+      })
+    }
+
+    // Update the UI
+    this.emitUpdateTabs()
   }
 
   setActiveTab(tabId: Tab['id'], noSanityChecks = false) {
@@ -655,10 +699,10 @@ class AppWindow {
 
   emitUpdateTabs() {
     this.emitSidebarEvent(
-      MainProcessEmittedEvents.Tabs_UpdateTabs,
+      MainProcessEmittedEvents.UpdateTabs,
       Object.fromEntries(this.tabs.entries()),
     )
-    this.emitSidebarEvent(MainProcessEmittedEvents.TabsUpdateActiveTab, this.activeTab)
+    this.emitSidebarEvent(MainProcessEmittedEvents.UpdateActiveTab, this.activeTab)
     this.persistTabs()
   }
 
@@ -666,14 +710,15 @@ class AppWindow {
     preferencesStore.set('tabs', Object.fromEntries(this.tabs.entries()))
     preferencesStore.set('lastActiveTab', this.activeTab)
   }
-  updateTabConfig(id: Tab['id'], update: Partial<Tab>) {
+
+  updateTabConfig(id: Tab['id'], update: Partial<Tab>, reactive = true) {
     const updated: Tab = {
       ...this.tabs.get(id)!,
       ...update,
     }
     this.tabs.set(id, updated)
     // this.upsertTabForSearch(id, updated)
-    this.emitUpdateTabs()
+    if (reactive) this.emitUpdateTabs()
   }
 
   createTab(url?: string, focus?: boolean, parent?: string) {
@@ -698,14 +743,13 @@ class AppWindow {
 
   setupTabHandlers() {
     // Tabs
-    ipcMain.on(ControlEmittedEvents.Tabs_Ready, (event) => {
-      event.reply(MainProcessEmittedEvents.Tabs_UpdateTabs, Object.fromEntries(this.tabs.entries()))
-      event.reply(MainProcessEmittedEvents.TabsUpdateActiveTab, this.activeTab)
+    ipcMain.handle(ControlEmittedEvents.GetInitialState, () => {
+      return { tabs: Object.fromEntries(this.tabs.entries()), activeTab: this.activeTab }
     })
-    ipcMain.on(ControlEmittedEvents.Tabs_CloseTab, (event, tabId: string) => {
+    ipcMain.on(ControlEmittedEvents.CloseTab, (event, tabId: string) => {
       this.closeTab(tabId)
     })
-    ipcMain.handle(ControlEmittedEvents.Tabs_UpdateActiveTab, (_, tabId: string) => {
+    ipcMain.handle(ControlEmittedEvents.UpdateActiveTab, (_, tabId: string) => {
       this.setActiveTab(tabId)
     })
   }
@@ -826,14 +870,21 @@ class AppWindow {
     }
   }
   setupNewTabHandlers() {
+    ipcMain.handle(NewTabEvents.CopyTabUrl, (_, tabId) => {
+      const tab = this.tabs.get(tabId)
+      if (tab) {
+        clipboard.writeText(tab.url)
+      }
+    })
+    ipcMain.handle(NewTabEvents.CloseTab, (_, tabId) => {
+      this.closeTab(tabId)
+    })
     ipcMain.handle(NewTabEvents.GetDefaultSearchEngine, () => {
       return preferencesStore.get('search_engine')
     })
-
     ipcMain.handle(NewTabEvents.Close, () => {
       this.closeNewTabPopup()
     })
-
     ipcMain.handle(
       NewTabEvents.Go,
       (_, urlOrSearchQuery: string, newTab = false, searchEngineOverride: SearchEngine) => {
@@ -852,7 +903,6 @@ class AppWindow {
             url = `${engineToSearchUrl[searchEngine]}${encodeURIComponent(urlOrSearchQuery)}`
           }
         }
-        console.log(url, searchEngineOverride)
         if (newTab) {
           this.createTab(url, true)
         } else {
@@ -920,6 +970,10 @@ class AppWindow {
   settingsView: BrowserView
   settingsOpen = false
 
+  get tabCloseBehavior() {
+    return preferencesStore.get('tab_close_behavior')
+  }
+
   get defaultSearchEngine() {
     return preferencesStore.get('search_engine')
   }
@@ -933,6 +987,7 @@ class AppWindow {
   }
 
   openSettings() {
+    this.settingsOpen = true
     this.closeCurrentlyOpenGlobalDialog()
     this.currentlyOpenGlobalDialog = 'settings'
     this.window.addBrowserView(this.settingsView)
@@ -944,8 +999,9 @@ class AppWindow {
   }
 
   closeSettings() {
+    this.settingsOpen = false
     this.window.removeBrowserView(this.settingsView)
-    this.settingsView.webContents.reload()
+    // this.settingsView.webContents.reload()
   }
 
   setupSettingsHandlers() {
@@ -968,6 +1024,15 @@ class AppWindow {
     ipcMain.handle(SettingsDialogEvents.GetDefaultSearchEngine, () => {
       return preferencesStore.get('search_engine')
     })
+    ipcMain.handle(SettingsDialogEvents.GetTabCloseBehavior, () => {
+      return preferencesStore.get('tab_close_behavior')
+    })
+    ipcMain.handle(
+      SettingsDialogEvents.SetTabCloseBehavior,
+      (_, value: StoredPreferences['tab_close_behavior']) => {
+        return preferencesStore.set('tab_close_behavior', value)
+      },
+    )
   }
 
   /* -------------------------------------------------------------------------- */
@@ -1005,9 +1070,9 @@ class AppWindow {
 
   setupSidebarHandlers() {
     // Sidebar
-    ipcMain.on(ControlEmittedEvents.SidebarReady, (event) => {
+    ipcMain.handle(ControlEmittedEvents.GetInitialSidebarWidth, (event) => {
       const storedWidth = preferencesStore.get('sidebar_width')
-      event.reply(MainProcessEmittedEvents.SidebarSetInitialWidth, storedWidth || 15)
+      return storedWidth || 15
     })
     ipcMain.on(ControlEmittedEvents.SidebarUpdateWidth, (_, sidebarWidth: number) => {
       preferencesStore.set('sidebar_width', sidebarWidth)

@@ -1,19 +1,15 @@
-import { Panel, PanelGroup, PanelResizeHandle } from 'react-resizable-panels'
-import { ControlEmittedEvents, MainProcessEmittedEvents } from 'src/shared/ipc_events'
-import { useIpcListener } from '../common/hooks/useIpcListener'
-import { sendIpcMessage } from '../common/lib/ipc'
-import { NewTabDialog } from './components/NewTabDialog'
-import { Sidebar } from './components/Sidebar'
 import * as React from 'react'
+import { Panel, PanelGroup, PanelResizeHandle } from 'react-resizable-panels'
+import { useDidMount } from 'rooks'
+import { ControlEmittedEvents } from 'src/shared/ipc_events'
+import { sendIpcMessage } from '../common/lib/ipc'
+import { Sidebar } from './components/Sidebar'
 
 export function App() {
   const [defaultSize, setDefaultSize] = React.useState<number | null>(null)
 
-  React.useEffect(() => {
-    sendIpcMessage(ControlEmittedEvents.SidebarReady)
-  }, [])
-  useIpcListener(MainProcessEmittedEvents.SidebarSetInitialWidth, (_, width: number) => {
-    console.log(width)
+  useDidMount(async () => {
+    const width: number = await ipcRenderer.invoke(ControlEmittedEvents.GetInitialSidebarWidth)
     setDefaultSize(width)
   })
 
@@ -21,7 +17,6 @@ export function App() {
 
   return (
     <div className='h-full w-full bg-neutral-800'>
-      <NewTabDialog />
       <PanelGroup
         direction='horizontal'
         onLayout={(layout) => {

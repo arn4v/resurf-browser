@@ -36,33 +36,26 @@ export const globals = {
       return ipcRenderer.sendSync(channel, ...args)
     },
 
-    invoke(channel: string, ...args: any[]) {
-      if (validateIPC(channel)) {
-        return ipcRenderer.invoke(channel, ...args)
-      }
+    async invoke<T>(channel: string, ...args: any[]): Promise<T> {
+      return (await ipcRenderer.invoke(channel, ...args)) as T
     },
 
     on(channel: string, listener: RendererListener) {
       if (validateIPC(channel)) {
         ipcRenderer.on(channel, listener)
-
-        return this
       }
+      return () => ipcRenderer.removeListener(channel, listener)
     },
 
     once(channel: string, listener: RendererListener) {
       if (validateIPC(channel)) {
         ipcRenderer.once(channel, listener)
-
-        return this
       }
     },
 
     removeListener(channel: string, listener: RendererListener) {
       if (validateIPC(channel)) {
         ipcRenderer.removeListener(channel, listener)
-
-        return this
       }
     },
   },
