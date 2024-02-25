@@ -3,7 +3,8 @@ export enum ControlEmittedEvents {
   SidebarUpdateWidth = 'sidebar-update-width',
   UpdateActiveTab = 'tabs_update-active-tab',
   CloseTab = 'tabs_close-tab',
-  GetInitialSidebarWidth = 'set-initial-sidebar-width',
+  GetInitialSidebarWidth = 'sidebar__set-initial-sidebar-width',
+  ChangeTabParent = 'sidebar__change-tab-parent',
 }
 
 export enum MainProcessEmittedEvents {

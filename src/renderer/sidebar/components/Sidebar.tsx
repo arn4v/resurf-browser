@@ -11,12 +11,15 @@ import { cn } from '~/common/lib/utils'
 const tabsContext = React.createContext<{
   tabs: TabsMap | null
   activeTab: Tab['id'] | null
+  draggingTab: string | null
+  setDraggingTab: (id: string | null) => void
   setActiveTab: (id: Tab['id']) => void
 }>(null!)
 
 function TabsProvider({ children }: { children: React.ReactElement }) {
   const [tabs, setTabs] = React.useState<TabsMap | null>(null)
   const [activeTab, setActiveTabInner] = React.useState<Tab['id'] | null>(null)
+  const [draggingTab, setDraggingTab] = React.useState<string | null>(null)
   const activeTabRef = React.useRef(activeTab)
   const initiatedByContext = React.useRef(false) // Flag to track the source of the update
 
@@ -65,6 +68,8 @@ function TabsProvider({ children }: { children: React.ReactElement }) {
         activeTab,
         setActiveTab,
         tabs,
+        draggingTab,
+        setDraggingTab,
       }}
     >
       {children}
@@ -81,13 +86,19 @@ export function Sidebar() {
           style={{
             // eslint-disable-next-line
             // @ts-ignore
-            '-webkit-app-region': 'drag',
+            WebkitAppRegion: 'drag',
           }}
         />
         <Tabs />
       </div>
     </TabsProvider>
   )
+}
+
+function isWithinYAxisRegion(mouseY: number, rect: DOMRect, regionFactor: [number, number]) {
+  const regionStart = rect.top + rect.height * regionFactor[0]
+  const regionEnd = rect.top + rect.height * regionFactor[1]
+  return mouseY >= regionStart && mouseY <= regionEnd
 }
 
 function Tabs() {
@@ -99,7 +110,7 @@ function Tabs() {
   }, [tabsMap])
 
   return (
-    <ul className='flex flex-col gap-1 overflow-x-clip pl-3 scrollbar-thin overflow-y-auto h-full scrollbar-track-zinc-700 scrollbar-thumb-zinc-500'>
+    <ul className='flex flex-col gap-1 overflow-x-clip pb-4 px-3 scrollbar-thin overflow-y-auto h-full scrollbar-track-zinc-700 scrollbar-thumb-zinc-500'>
       {topLevelTabs.map((parent) => {
         return <TabItem key={parent.id} tab={parent} tabs={tabs} />
       })}
@@ -108,7 +119,9 @@ function Tabs() {
 }
 
 function TabItem({ tab, tabs, depth = 0 }: { tabs: Tab[]; tab: Tab; depth?: number }) {
-  const { setActiveTab, activeTab } = React.useContext(tabsContext)
+  const { setActiveTab, activeTab, draggingTab, setDraggingTab } = React.useContext(tabsContext)
+  const [dragging, setDragging] = React.useState(false)
+  const [dropLocation, setDropLocation] = React.useState<'above' | 'below' | 'child' | null>(null)
   const [expanded, setExpanded] = React.useState(true)
   const children = React.useMemo(
     () =>
@@ -119,27 +132,83 @@ function TabItem({ tab, tabs, depth = 0 }: { tabs: Tab[]; tab: Tab; depth?: numb
     [tabs, tab.id],
   )
 
+  React.useEffect(() => {
+    if (!draggingTab) setDropLocation(null)
+  }, [draggingTab])
+
   return (
     <li
-      data-depth={depth}
       data-tab-id={tab.id}
-      className='max-w-full'
+      className={cn('max-w-full', children.length && dragging && 'bg-blue-500/50 rounded-lg')}
       key={tab.id}
       style={{
-        width: depth ? `calc(100% - ${depth * 12}px)` : undefined,
+        marginLeft: depth ? depth * 16 : undefined,
       }}
     >
       <div
         className={cn(
-          'flex items-center justify-start w-full rounded-lg group select-none h-8',
-          tab.id === activeTab
-            ? 'bg-neutral-700 cursor-default'
-            : 'transition hover:bg-neutral-700',
+          'flex items-center justify-start w-full rounded-lg group select-none h-8 relative',
+          !dragging && [
+            tab.id === activeTab
+              ? 'bg-neutral-700 cursor-default'
+              : 'transition hover:bg-neutral-700',
+          ],
+          dropLocation === 'child' ? 'bg-blue-500/50' : null,
         )}
         onClick={() => {
           setActiveTab(tab.id)
         }}
+        draggable={draggingTab === null || draggingTab === tab.id}
+        onDragLeave={() => {
+          setDropLocation(null)
+        }}
+        onDragEnter={(e) => e.preventDefault()}
+        onDragOver={(e) => {
+          e.preventDefault()
+          if (draggingTab && tab.id !== draggingTab) {
+            const rect = e.currentTarget.getBoundingClientRect()
+            if (isWithinYAxisRegion(e.pageY, rect, [0, 0.2])) {
+              setDropLocation('above')
+            } else if (isWithinYAxisRegion(e.pageY, rect, [0.2, 0.6])) {
+              setDropLocation('child')
+            } else {
+              setDropLocation('below')
+            }
+          }
+        }}
+        onMouseOut={() => {
+          if (dropLocation) setDropLocation(null)
+        }}
+        onDragStart={() => {
+          setDragging(true)
+          setDraggingTab(tab.id)
+        }}
+        onDrop={() => {
+          const newParentId =
+            dropLocation === 'above'
+              ? tab.parent || null
+              : dropLocation === 'below'
+                ? tab.parent || null
+                : dropLocation === 'child'
+                  ? tab.id
+                  : null
+          void ipcRenderer.invoke(ControlEmittedEvents.ChangeTabParent, draggingTab, newParentId)
+          setDraggingTab(null)
+        }}
+        onDragEnd={() => {
+          setDragging(false)
+        }}
       >
+        {(dropLocation === 'above' || dropLocation === 'below') && (
+          <div
+            className={cn(
+              'w-full h-px rounded-full bg-blue-500',
+              'absolute',
+              dropLocation === 'above' && 'top-0',
+              dropLocation === 'below' && 'bottom-0',
+            )}
+          />
+        )}
         <div
           className={cn(
             'h-8 w-8 grid place-items-center rounded-lg shrink-0',
@@ -184,8 +253,8 @@ function TabItem({ tab, tabs, depth = 0 }: { tabs: Tab[]; tab: Tab; depth?: numb
           </div>
         </div>
       </div>
-      {expanded && (
-        <ul className='ml-3 w-full flex flex-col gap-1 box-border'>
+      {expanded && !!children.length && (
+        <ul draggable data-dept={depth + 1} className='w-full flex flex-col gap-1 box-border'>
           {children.map((parent) => {
             return <TabItem key={parent.id} tab={parent} tabs={tabs} depth={depth + 1} />
           })}

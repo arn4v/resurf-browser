@@ -7,6 +7,7 @@ import { Switch } from '~/common/ui/switch'
 import { SettingsDialogEvents } from '~/shared/ipc_events'
 import { SearchEngine, engineToTitle } from '~/shared/search_engines'
 import '../common/globals.css'
+import { TabCloseBehavior } from '~/shared/tabs'
 
 const container = document.getElementById('root') as HTMLDivElement
 const root = createRoot(container)
@@ -14,7 +15,7 @@ const root = createRoot(container)
 interface SettingsState {
   adblockEnabled: boolean
   searchEngine: SearchEngine | undefined
-  tabCloseBehavior: 'cascade' | 'elevate' | undefined
+  tabCloseBehavior: TabCloseBehavior | undefined
 }
 
 function App() {
@@ -37,9 +38,13 @@ function App() {
     const searchEngine = await ipcRenderer.invoke<SearchEngine>(
       SettingsDialogEvents.GetDefaultSearchEngine,
     )
+    const tabCloseBehavior = await ipcRenderer.invoke<TabCloseBehavior>(
+      SettingsDialogEvents.GetTabCloseBehavior,
+    )
     dispatch({
       adblockEnabled,
       searchEngine,
+      tabCloseBehavior,
     })
   })
 
@@ -102,12 +107,9 @@ function App() {
         <div className='flex flex-col w-full py-2 gap-4'>
           <span className='text-md font-medium'>Tab Close Behavior</span>
           <Select.Root
-            onValueChange={(value: string) => {
-              dispatch({ tabCloseBehavior: value as SettingsState['tabCloseBehavior'] })
-              ipcRenderer.invoke(
-                SettingsDialogEvents.SetTabCloseBehavior,
-                value as SettingsState['tabCloseBehavior'],
-              )
+            onValueChange={(value: TabCloseBehavior) => {
+              dispatch({ tabCloseBehavior: value })
+              ipcRenderer.invoke(SettingsDialogEvents.SetTabCloseBehavior, value)
             }}
             value={state.tabCloseBehavior}
             defaultValue={SearchEngine.Google}
@@ -116,8 +118,8 @@ function App() {
               <Select.Value placeholder='Tab Close Behavior' className='dark:bg-zinc-900' />
             </Select.Trigger>
             <Select.Content>
-              <Select.Item value='cascade'>Close entire tree/subtree</Select.Item>
-              <Select.Item value='elevate'>Elevate to parent level</Select.Item>
+              <Select.Item value={TabCloseBehavior.Cascade}>Close entire tree/subtree</Select.Item>
+              <Select.Item value={TabCloseBehavior.Elevate}>Elevate to parent level</Select.Item>
             </Select.Content>
           </Select.Root>
         </div>

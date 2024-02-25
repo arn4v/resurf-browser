@@ -32,3 +32,8 @@ export const FIND_IN_PAGE_INITIAL_STATE: TabStateInterface['findInPage'] = {
   results_cursor: 0,
   results_total: 0,
 }
+
+export enum TabCloseBehavior {
+  Cascade = 'cascade',
+  Elevate = 'elevate',
+}

@@ -142,7 +142,7 @@ export function App() {
         {
           heading: 'Tab Actions',
           type: 'commands',
-          enabled: state.query === '' && (!isQueryAUrl || state.mode !== OmnibarMode.SearchEngine),
+          enabled: state.query === '' && state.mode !== OmnibarMode.SearchEngine,
           items: [
             {
               id: 'copy_url',

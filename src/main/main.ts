@@ -1,6 +1,6 @@
 import { ElectronBlocker, fullLists } from '@cliqz/adblocker-electron'
 import { createId } from '@paralleldrive/cuid2'
-import { app, BrowserView, BrowserWindow, clipboard, ipcMain, screen } from 'electron'
+import { BrowserView, BrowserWindow, app, clipboard, ipcMain, screen } from 'electron'
 import contextMenu from 'electron-context-menu'
 import Store from 'electron-store'
 import { promises as fs } from 'node:fs'
@@ -13,13 +13,12 @@ import {
   NewTabEvents,
   SettingsDialogEvents,
 } from 'src/shared/ipc_events'
-import { Tab, TabsMap } from 'src/shared/tabs'
+import { Tab, TabCloseBehavior, TabsMap } from 'src/shared/tabs'
 import { parse } from 'tldts'
 import { FIND_IN_PAGE_HEIGHT, FIND_IN_PAGE_WIDTH } from '~/shared/constants'
-import { engineToSearchUrl, engineToTitle, SearchEngine } from '~/shared/search_engines'
+import { SearchEngine, engineToSearchUrl, engineToTitle } from '~/shared/search_engines'
 import { KeyboardShortcuts } from '../shared/keyboard_shortcuts'
 import { ShortcutManager } from './shortcut_manager'
-import _ from 'underscore'
 
 export type Brand<Name extends string, T> = T & { __brand: Name }
 
@@ -52,15 +51,16 @@ type StoredPreferences = {
   active_tab: string | null
   adblock_enabled: boolean
   search_engine: SearchEngine
-  tab_close_behavior: 'cascade' | 'elevate'
+  tab_close_behavior: TabCloseBehavior
 }
 const preferencesStore = new Store<StoredPreferences>({
+  name: Env.deploy.isDevelopment ? 'dev' : undefined,
   defaults: {
     active_tab: null,
     tabs: {},
     adblock_enabled: true,
     search_engine: SearchEngine.Google,
-    tab_close_behavior: 'elevate',
+    tab_close_behavior: TabCloseBehavior.Elevate,
     sidebar_width: 20,
     window_bounds: null,
   },
@@ -113,7 +113,7 @@ class AppWindow {
   sidebarView: BrowserView
   tabToBrowserView = new Map<string, BrowserView>()
   tabToWebContentsId = new BidiMap<string, number>()
-  tabToCurrentHtml = new Map<string, string>()
+  tabPlayingMedia: string | null = null
   tabs = new Map<string, Tab>()
   activeTab: string | null = null
   shortcutManager: ShortcutManager
@@ -139,13 +139,7 @@ class AppWindow {
       },
     })
 
-    this.sidebarView = new BrowserView({
-      webPreferences: {
-        preload: preloadPath,
-        nodeIntegration: true,
-        // contextIsolation: tru,
-      },
-    })
+    this.sidebarView = this.createBrowserViewForControlInterface('')
     this.setupSidebarView()
 
     this.addressBarView = this.createBrowserViewForControlInterface('address_bar')
@@ -166,9 +160,14 @@ class AppWindow {
     }, 2000)
   }
 
+  getPersistedTabs() {
+    return preferencesStore.get('tabs')
+  }
+
   restoreTabsOrCreateBlank() {
-    const savedTabs = preferencesStore.get('tabs')
+    const savedTabs = this.getPersistedTabs()
     if (savedTabs && Object.entries(savedTabs).length >= 1) {
+      const tabIds = new Set(Object.keys(savedTabs))
       const tabsArr = Object.entries(savedTabs)
         .map(([id, tab]) => {
           return [
@@ -178,7 +177,7 @@ class AppWindow {
               title: tab.title,
               url: tab.url,
               favicon: tab.favicon,
-              parent: tab.parent,
+              parent: tab.parent && tabIds.has(tab.parent) ? tab.parent : undefined,
             } as Tab,
           ] as [string, Tab]
         })
@@ -186,13 +185,6 @@ class AppWindow {
           return !!tab.id && !!tab.url
         })
       const tabs = new Map<string, Tab>(tabsArr)
-      /*
-      tabsArr.map(([_, tab]) => {
-        const view = this.createWebview(tab.id, tab.url)
-        this.tabToBrowserView.set(tab.id, view)
-        this.tabToWebContentsId.set(tab.id, view.webContents.id)
-      })
-      */
       this.tabs = tabs
       const lastActiveTab = preferencesStore.get('active_tab') || tabsArr[0][0]
       this.setActiveTab(lastActiveTab)
@@ -352,6 +344,7 @@ class AppWindow {
         autoplayPolicy: 'user-gesture-required',
       },
     })
+    if (this.blocker) this.blocker.enableBlockingInSession(view.webContents.session)
 
     view.setAutoResize({
       width: true,
@@ -395,7 +388,7 @@ class AppWindow {
             click: () => {
               this.createTab(
                 `${engineToSearchUrl[this.defaultSearchEngine]}${encodeURIComponent(params.selectionText)}`,
-                false,
+                true,
                 tabId,
               )
             },
@@ -447,6 +440,15 @@ class AppWindow {
       // return parsed?.textContent
     }
 
+    view.webContents.on('media-started-playing', async () => {
+      if (this.tabPlayingMedia) {
+        this.tabToBrowserView.get(this.tabPlayingMedia)?.webContents.executeJavaScript(`
+        
+        `)
+        this.tabPlayingMedia = tabId
+      }
+    })
+
     view.webContents.on('did-navigate', async () => {
       const url = view.webContents.getURL()
       const title = view.webContents.getTitle()
@@ -456,6 +458,7 @@ class AppWindow {
         url,
       })
     })
+
     view.webContents.on('did-navigate-in-page', async () => {
       const url = view.webContents.getURL()
       // const content = await getContent(url)
@@ -602,13 +605,35 @@ class AppWindow {
   closeTab(rootId: string) {
     if (!this.tabs.has(rootId)) return // Exit if the tab is not found
 
-    const tabs = Array.from(this.tabs.entries())
-    const tabIds = Array.from(this.tabs.keys())
-
     let tabsToClose: string[] = [rootId]
-
     if (this.tabCloseBehavior === 'cascade') {
       tabsToClose = this.getTabsInTree(rootId)
+    }
+
+    // Determine the new active tab
+    let newActiveTab: string | null = null
+    if (this.tabCloseBehavior === 'cascade') {
+      // For cascade, find the nearest sibling or parent
+      const parent = this.tabs.get(rootId)?.parent
+      if (parent && this.tabs.has(parent)) {
+        newActiveTab = parent
+      } else {
+        const siblings = Array.from(this.tabs.values()).filter((tab) => tab.parent === parent)
+        const index = siblings.findIndex((tab) => tab.id === rootId)
+        newActiveTab = siblings[index + 1]?.id || siblings[index - 1]?.id || null
+      }
+    } else {
+      // For elevate, find the nearest sibling
+      const children = Array.from(this.tabs.values()).filter((tab) => tab.parent === rootId)
+      const siblings =
+        children.length === 0
+          ? Array.from(this.tabs.values()).filter(
+              (tab) => tab.parent === this.tabs.get(rootId)?.parent,
+            )
+          : []
+      const arrayToUse = children.length ? children : siblings
+      const index = arrayToUse.findIndex((tab) => tab.id === rootId)
+      newActiveTab = arrayToUse[index + 1]?.id || arrayToUse[index - 1]?.id || null
     }
 
     // Remove the tabs and their associated resources
@@ -623,22 +648,25 @@ class AppWindow {
       this.destroyFindInPageForTab(tabId)
     })
 
-    const clamp = (n: number, min: number, max: number) => Math.min(Math.max(n, min), max)
+    // const newActiveTab =
+    //   this.tabCloseBehavior === 'cascade'
+    //     ? startingPoint.parentToChildren[rootId].length > 0
+    //       ? startingPoint.entries[
+    //           clamp(
+    //             _.filter([...startingPoint.ids], _.filter(tabsToClose, rootId)).indexOf(rootId) + 1,
+    //             0,
+    //             startingPoint.map.size - 1,
+    //           )
+    //         ][0]
+    //       : null //tab
+    //     : startingPoint.entries.filter(([_, x]) => x?.parent === rootId)?.[0]?.[0]
 
-    const newActiveTab =
-      this.tabCloseBehavior === 'cascade'
-        ? tabs[
-            clamp(
-              _.filter(tabIds, _.filter(tabsToClose, rootId)).indexOf(rootId) + 1,
-              0,
-              tabs.length - 1,
-            )
-          ][0]
-        : tabs.filter(([_, x]) => x?.parent === rootId)[0][0]
-    this.setActiveTab(newActiveTab)
-    const newActiveView = this.tabToBrowserView.get(newActiveTab)
-    if (newActiveView) {
-      newActiveView.webContents.focus()
+    if (newActiveTab) {
+      this.setActiveTab(newActiveTab)
+      const newActiveView = this.tabToBrowserView.get(newActiveTab)
+      if (newActiveView) {
+        newActiveView.webContents.focus()
+      }
     }
 
     // If the tab close behavior is 'elevate', update the parent property for the children
@@ -678,7 +706,6 @@ class AppWindow {
       this.window.setTopBrowserView(this.sidebarView)
       this.window.addBrowserView(newActiveView)
       this.window.setTopBrowserView(newActiveView)
-
       this.emitUpdateTabs()
     }
 
@@ -689,12 +716,6 @@ class AppWindow {
     if (this.tabToFindInPageView.get(newActiveTab.id)) {
       this.showFindInPageForTab(newActiveTab.id)
     }
-
-    // Don't removeBrowserView, because it causes a glitchy flash when added back again
-    // Keep as many browser views in memory as possible
-    // if (activeView) {
-    // this.window.removeBrowserView(activeView);
-    // }
   }
 
   emitUpdateTabs() {
@@ -708,7 +729,7 @@ class AppWindow {
 
   persistTabs() {
     preferencesStore.set('tabs', Object.fromEntries(this.tabs.entries()))
-    preferencesStore.set('lastActiveTab', this.activeTab)
+    preferencesStore.set('active_tab', this.activeTab)
   }
 
   updateTabConfig(id: Tab['id'], update: Partial<Tab>, reactive = true) {
@@ -718,6 +739,7 @@ class AppWindow {
     }
     this.tabs.set(id, updated)
     // this.upsertTabForSearch(id, updated)
+    this.persistTabs()
     if (reactive) this.emitUpdateTabs()
   }
 
@@ -731,7 +753,7 @@ class AppWindow {
       parent,
     }
     const view = this.createWebview(tabId, url)
-    this.blocker?.enableBlockingInSession(view.webContents.session)
+    if (this.blocker) this.blocker.enableBlockingInSession(view.webContents.session)
     this.tabToBrowserView.set(tabId, view)
     this.tabToWebContentsId.set(tabId, view.webContents.id)
     this.tabs.set(tabId, tab)
@@ -1083,6 +1105,15 @@ class AppWindow {
         this.tabToBrowserView.get(key)?.setBounds(this.getWebviewBounds())
       }
     })
+    ipcMain.handle(
+      ControlEmittedEvents.ChangeTabParent,
+      (_, tabId: string, parent: string | null) => {
+        if (!this.tabs.get(tabId) || (parent && !this.tabs.get(parent))) return
+        this.updateTabConfig(tabId, {
+          parent: parent || undefined,
+        })
+      },
+    )
   }
 
   /* -------------------------------------------------------------------------- */
@@ -1127,6 +1158,7 @@ function createWindow() {
 // initialization and is ready to create browser windows.
 // Some APIs can only be used after this event occurs.
 app.on('ready', async () => {
+  // app.commandLine.appendSwitch('autoplay-policy', 'no-user-gesture-required')
   // await migrateToLatest()
   const { id, window } = createWindow()
   windows.set(id, window)
