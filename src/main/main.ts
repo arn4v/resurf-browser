@@ -981,7 +981,9 @@ class AppWindow {
   toggleSettings() {
     if (!this.settingsOpen) {
       this.openSettings()
+      this.settingsOpen = true
     } else {
+      this.settingsOpen = false
       this.closeSettings()
     }
   }
