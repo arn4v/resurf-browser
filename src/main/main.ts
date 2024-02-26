@@ -339,12 +339,16 @@ class AppWindow {
     const view = new BrowserView({
       webPreferences: {
         nodeIntegration: false,
+        nodeIntegrationInSubFrames: true,
+        scrollBounce: true,
+        safeDialogs: true,
+        safeDialogsMessage: 'Prevent this page from creating additional dialogs',
+
         devTools: true,
         contextIsolation: true,
         sandbox: true,
-        scrollBounce: true,
-        safeDialogs: true,
-        autoplayPolicy: 'user-gesture-required',
+        autoplayPolicy: 'no-user-gesture-required',
+        minimumFontSize: 6,
       },
     })
     if (this.blocker) this.blocker.enableBlockingInSession(view.webContents.session)
@@ -485,7 +489,10 @@ class AppWindow {
       }
     })
 
-    view.webContents.loadURL(url ?? 'about:blank')
+    view.webContents.loadURL(url ?? 'about:blank', {
+      userAgent:
+        'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36 Edg/122.0.0.0',
+    })
 
     // view.webContents.on(
     //   'did-fail-load',
@@ -531,7 +538,7 @@ class AppWindow {
     // view.webContents.setLayoutZoomLevelLimits(0, 0)
 
     view.setAutoResize({
-      width: true,
+      width: false,
       height: true,
       horizontal: true,
       vertical: true,
@@ -657,13 +664,25 @@ class AppWindow {
 
     // Remove the tabs and their associated resources
     tabsToClose.forEach((tabId) => {
+      const tab = this.tabs.get(tabId)
+      if (!tab) return
       const browserView = this.tabToBrowserView.get(tabId)
       if (browserView) {
         this.browserWindow.removeBrowserView(browserView)
         browserView.webContents.close()
       }
+      if (tab.parent && !tabsToClose.includes(tab.parent)) {
+        const parent = this.tabs.get(tab.parent)
+        if (parent) {
+          const updatedChildren = parent.children.filter((_id) => _id !== tabId)
+          this.tabs.set(tab.parent, {
+            ...parent,
+            children: updatedChildren,
+          })
+        }
+      }
+      this.tabs.get(tabId)
       this.tabToBrowserView.delete(tabId)
-      this.tabs.delete(tabId)
       this.destroyFindInPageForTab(tabId)
     })
 
@@ -1003,11 +1022,17 @@ class AppWindow {
       let url
       if (result.domain && result.isIcann) {
         url = urlOrSearchQuery.startsWith('http') ? urlOrSearchQuery : 'http://' + urlOrSearchQuery
-        this.getActiveView()?.webContents.loadURL(url)
+        this.getActiveView()?.webContents.loadURL(url, {
+          userAgent:
+            'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36 Edg/122.0.0.0',
+        })
       } else {
         const searchQuery = encodeURIComponent(urlOrSearchQuery)
         url = `${engineToSearchUrl[preferencesStore.get('search_engine')]}${searchQuery}`
-        this.getActiveView()?.webContents.loadURL(url)
+        this.getActiveView()?.webContents.loadURL(url, {
+          userAgent:
+            'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36 Edg/122.0.0.0',
+        })
       }
       this.updateTabConfig(this.activeTab, { url })
     })

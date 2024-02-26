@@ -7,6 +7,7 @@
     "start": "electron-forge start",
     "package": "electron-forge package",
     "make": "electron-forge make",
+    "make:all": "npm run make:mac-m1 && npm run make:mac-intel",
     "make:mac-m1": "npm run make -- --arch=arm64 --platform=darwin",
     "make:mac-intel": "npm run make -- --arch=x64 --platform=darwin",
     "publish": "electron-forge publish",

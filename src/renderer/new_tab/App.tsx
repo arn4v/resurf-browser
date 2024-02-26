@@ -78,6 +78,7 @@ export function App() {
       activeTab: null,
     } satisfies State,
   )
+  console.log(state.allTabs.map((x) => x.content))
   // const queryWords = state.query.split(' ')
   const inputRef = useRef<HTMLInputElement>(null)
   // const [debouncedQuery] = useDebouncedValue(state.query, 100)
@@ -85,11 +86,24 @@ export function App() {
     data: state.allTabs,
     query: state.query,
     options: {
-      threshold: 0.2,
-      keys: ['title', 'url', 'content'],
+      threshold: 0.3,
+      // distance: 50,
+      keys: [
+        {
+          name: 'content',
+          weight: 1,
+        },
+        {
+          name: 'title',
+          weight: 1,
+        },
+        {
+          name: 'url',
+          weight: 1,
+        },
+      ],
     },
   })
-  console.log(state.allTabs, tabs)
   // const tabs = useMemo(() => {
   //   return fuse.search(debouncedQuery)
   // }, [debouncedQuery])
