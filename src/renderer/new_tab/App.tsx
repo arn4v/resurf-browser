@@ -48,7 +48,7 @@ interface State {
   query: string
   mode: OmnibarMode
   searchModeEngine: SearchEngine | null
-  allTabs: Tab[]
+  allTabs: (Tab & { content: string })[]
   activeTab: string | null
 }
 
@@ -86,9 +86,10 @@ export function App() {
     query: state.query,
     options: {
       threshold: 0.2,
-      keys: ['title'],
+      keys: ['title', 'url', 'content'],
     },
   })
+  console.log(state.allTabs, tabs)
   // const tabs = useMemo(() => {
   //   return fuse.search(debouncedQuery)
   // }, [debouncedQuery])
@@ -114,7 +115,10 @@ export function App() {
   })
   useIpcListener(
     NewTabEvents.SignalOpen,
-    async (_, { activeTab, tabs }: { tabs: Tab[]; activeTab: string | null }) => {
+    async (
+      _,
+      { activeTab, tabs }: { tabs: (Tab & { content: string })[]; activeTab: string | null },
+    ) => {
       dispatch({
         activeTab,
         allTabs: tabs,

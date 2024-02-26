@@ -1,9 +1,11 @@
 import { ElectronBlocker, fullLists } from '@cliqz/adblocker-electron'
 import { createId } from '@paralleldrive/cuid2'
+import { parse as parsePageContent } from '@postlight/parser'
 import { BrowserView, BrowserWindow, app, clipboard, ipcMain, screen } from 'electron'
 import contextMenu from 'electron-context-menu'
 import Store from 'electron-store'
 import { promises as fs } from 'node:fs'
+import $signal, { Observable } from 'oby'
 import path from 'path'
 import {
   AddressBarEvents,
@@ -116,6 +118,7 @@ class AppWindow {
   rootTabsOrder: string[] = []
   tabs = new Map<string, Tab>()
   tabToBrowserView = new Map<string, BrowserView>()
+  tabToContent = new Map<string, string>()
   tabToWebContentsId = new BidiMap<string, number>()
   tabPlayingMedia: string | null = null
   activeTab: string | null = null
@@ -399,7 +402,6 @@ class AppWindow {
       },
     })
 
-    view.webContents.loadURL(url ?? 'about:blank')
     view.webContents.on('page-favicon-updated', async (_, favicons) => {
       if (favicons[0]) {
         const exists = await fetch(favicons[0])
@@ -414,33 +416,32 @@ class AppWindow {
         })
       }
     })
-    view.webContents.on('page-title-updated', (_, title) => {
+
+    async function getContent(url: string) {
+      try {
+        const text = await view.webContents.executeJavaScript(
+          `document.documentElement.innerText`,
+          true,
+        )
+        console.log({ text })
+        return text
+        // console.log(html)
+        // const result = await parsePageContent(url, { contentType: 'text', html: html })
+        // console.log(result)
+        // return result.content
+      } catch (err) {
+        console.log(err)
+        return null
+      }
+    }
+
+    view.webContents.on('page-title-updated', async (_, title) => {
+      const content = await getContent(url)
+      if (content) this.tabToContent.set(tabId, content)
       this.updateTabConfig(tabId, {
         title,
       })
     })
-
-    async function getContent(url: string) {
-      return ''
-      // const html = await view.webContents.executeJavaScript(
-      //   `document.documentElement.innerHTML`,
-      //   true,
-      // )
-      // return html
-
-      // const window = new JSDOM('').window
-
-      // // strip potential XSS/JS in the article using DOMPurify library
-      // const DOMPurify = createDOMPurify(window)
-      // const cleaned_html = DOMPurify.sanitize(html)
-      // const cleaned_dom = new JSDOM(cleaned_html, { url })
-
-      // const dom = new JSDOM(html)
-      // const reader = new Readability(cleaned_dom.window.document)
-      // const parsed = reader.parse()
-      // if (!parsed) return ''
-      // return parsed?.textContent
-    }
 
     view.webContents.on('media-started-playing', async () => {
       if (this.tabPlayingMedia) {
@@ -454,6 +455,8 @@ class AppWindow {
     view.webContents.on('did-navigate', async () => {
       const url = view.webContents.getURL()
       const title = view.webContents.getTitle()
+      const content = await getContent(url)
+      if (content) this.tabToContent.set(tabId, content)
       // const content = await getContent(url)
       this.updateTabConfig(tabId, {
         title,
@@ -463,7 +466,8 @@ class AppWindow {
 
     view.webContents.on('did-navigate-in-page', async () => {
       const url = view.webContents.getURL()
-      // const content = await getContent(url)
+      const content = await getContent(url)
+      if (content) this.tabToContent.set(tabId, content)
       this.updateTabConfig(tabId, {
         title: view.webContents.getTitle(),
         url,
@@ -482,6 +486,8 @@ class AppWindow {
         action: 'allow',
       }
     })
+
+    view.webContents.loadURL(url ?? 'about:blank')
 
     // view.webContents.on(
     //   'did-fail-load',
@@ -513,6 +519,19 @@ class AppWindow {
         preload: preloadPath,
       },
     })
+
+    view.webContents.on('did-finish-load', () => {
+      view.webContents.executeJavaScript(
+        `window.onkeydown = function(evt) {
+          // disable zooming
+          if ((evt.code == "Minus" || evt.code == "Equal") && (evt.ctrlKey || evt.metaKey)) {evt.preventDefault()}
+        }`,
+      )
+    })
+
+    view.webContents.setVisualZoomLevelLimits(1, 1)
+    // view.webContents.setLayoutZoomLevelLimits(0, 0)
+
     view.setAutoResize({
       width: true,
       height: true,
@@ -757,6 +776,7 @@ class AppWindow {
     const view = this.createWebview(tabId, url)
     if (this.blocker) this.blocker.enableBlockingInSession(view.webContents.session)
     this.tabToBrowserView.set(tabId, view)
+    this.tabToContent.set(tabId, '')
     this.tabToWebContentsId.set(tabId, view.webContents.id)
     this.tabs.set(tabId, tab)
     if (focus) {
@@ -879,7 +899,10 @@ class AppWindow {
     this.browserWindow.setTopBrowserView(this.newTabView)
     this.newTabView.setBounds({ ...this.browserWindow.getBounds(), y: 0 })
     this.newTabView.webContents.send(NewTabEvents.SignalOpen, {
-      tabs: [...this.tabs.entries()].map((x) => x[1]),
+      tabs: [...this.tabs.entries()].map((x) => ({
+        ...x[1],
+        content: this.tabToContent.get(x[0]) || '',
+      })),
       activeTab: this.activeTab,
     })
     this.newTabView.webContents.focus()
@@ -1175,7 +1198,7 @@ class AppWindow {
 export const normalizeNumber = (value: number | undefined): number =>
   value && isFinite(1 / value) ? Math.trunc(value) : 0
 
-let window: AppWindow
+let window: AppWindow | undefined
 
 // This method will be called when Electron has finished
 // initialization and is ready to create browser windows.
@@ -1195,7 +1218,7 @@ app.on('ready', async () => {
 // for applications and their menu bar to stay active until the user quits
 // explicitly with Cmd + Q.
 app.on('window-all-closed', () => {
-  window.destroy()
+  window?.destroy()
 })
 
 app.on('activate', () => {
@@ -1207,5 +1230,8 @@ app.on('activate', () => {
 })
 
 app.on('open-url', (_, url) => {
-  window.createTab(url, true)
+  while (!window) {
+    if (window) break
+  }
+  window?.createTab(url, true)
 })

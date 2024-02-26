@@ -14,11 +14,12 @@
     "resolveJsonModule": true,
     "forceConsistentCasingInFileNames": true,
     "baseUrl": ".",
+    "typeRoots": ["./types"],
     "paths": {
       "~/*": ["src/renderer/*"],
       "~/preload/*": ["src/preload/*"],
       "~/shared/*": ["src/shared/*"]
     }
   },
-  "include": ["src", "forge.config.ts"]
+  "include": ["src", "forge.config.ts", "types"]
 }
