@@ -19,6 +19,7 @@ import { FIND_IN_PAGE_HEIGHT, FIND_IN_PAGE_WIDTH } from '~/shared/constants'
 import { SearchEngine, engineToSearchUrl, engineToTitle } from '~/shared/search_engines'
 import { KeyboardShortcuts } from '../shared/keyboard_shortcuts'
 import { ShortcutManager } from './shortcut_manager'
+import './user_agent'
 
 export type Brand<Name extends string, T> = T & { __brand: Name }
 

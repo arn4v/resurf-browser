@@ -1,7 +1,7 @@
 {
   "name": "resurf",
   "productName": "Resurf",
-  "version": "0.12",
+  "version": "0.13",
   "main": ".vite/build/main.js",
   "scripts": {
     "start": "electron-forge start",
