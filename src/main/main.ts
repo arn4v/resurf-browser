@@ -1,11 +1,9 @@
 import { ElectronBlocker, fullLists } from '@cliqz/adblocker-electron'
 import { createId } from '@paralleldrive/cuid2'
-import { parse as parsePageContent } from '@postlight/parser'
 import { BrowserView, BrowserWindow, app, clipboard, ipcMain, screen } from 'electron'
 import contextMenu from 'electron-context-menu'
 import Store from 'electron-store'
 import { promises as fs } from 'node:fs'
-import $signal, { Observable } from 'oby'
 import path from 'path'
 import {
   AddressBarEvents,
