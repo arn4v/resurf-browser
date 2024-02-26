@@ -10,6 +10,7 @@ import { cn } from '~/common/lib/utils'
 
 const tabsContext = React.createContext<{
   tabs: TabsMap | null
+  rootTabsOrder: string[]
   activeTab: Tab['id'] | null
   draggingTab: string | null
   setDraggingTab: (id: string | null) => void
@@ -18,6 +19,7 @@ const tabsContext = React.createContext<{
 
 function TabsProvider({ children }: { children: React.ReactElement }) {
   const [tabs, setTabs] = React.useState<TabsMap | null>(null)
+  const [rootTabsOrder, setRootTabsOrder] = React.useState<string[]>([])
   const [activeTab, setActiveTabInner] = React.useState<Tab['id'] | null>(null)
   const [draggingTab, setDraggingTab] = React.useState<string | null>(null)
   const activeTabRef = React.useRef(activeTab)
@@ -44,17 +46,32 @@ function TabsProvider({ children }: { children: React.ReactElement }) {
   }
 
   useDidMount(async () => {
-    const { tabs, activeTab } = await ipcRenderer.invoke<{
+    const { tabs, activeTab, rootTabsOrder } = await ipcRenderer.invoke<{
       tabs: TabsMap
       activeTab: Tab['id'] | null
+      rootTabsOrder: string[]
     }>(ControlEmittedEvents.GetInitialState)
     setTabs(tabs)
     setActiveTabInner(activeTab)
+    setRootTabsOrder(rootTabsOrder)
     if (activeTab) scrollToTab(activeTab)
   })
-  useIpcListener(MainProcessEmittedEvents.UpdateTabs, (_, tabs: TabsMap) => {
-    setTabs(tabs)
-  })
+  useIpcListener(
+    MainProcessEmittedEvents.UpdateTabs,
+    (
+      _,
+      {
+        tabs,
+        rootTabsOrder,
+      }: {
+        tabs: TabsMap
+        rootTabsOrder: string[]
+      },
+    ) => {
+      setTabs(tabs)
+      setRootTabsOrder(rootTabsOrder)
+    },
+  )
   useIpcListener(MainProcessEmittedEvents.UpdateActiveTab, (_, newActiveTab: Tab['id']) => {
     if (activeTabRef.current === newActiveTab) return
     setActiveTabInner(newActiveTab)
@@ -70,6 +87,7 @@ function TabsProvider({ children }: { children: React.ReactElement }) {
         tabs,
         draggingTab,
         setDraggingTab,
+        rootTabsOrder,
       }}
     >
       {children}
@@ -102,12 +120,17 @@ function isWithinYAxisRegion(mouseY: number, rect: DOMRect, regionFactor: [numbe
 }
 
 function Tabs() {
-  const { tabs: tabsMap } = React.useContext(tabsContext)
+  const { tabs: tabsMap, rootTabsOrder } = React.useContext(tabsContext)
 
   const { tabs, topLevelTabs } = React.useMemo(() => {
     const tabs = Object.values(tabsMap || {})
-    return { tabs, topLevelTabs: tabs.filter((tab) => !tab.parent) }
-  }, [tabsMap])
+    return {
+      tabs,
+      topLevelTabs: tabs
+        .filter((tab) => !tab.parent)
+        .sort((a, b) => rootTabsOrder.indexOf(a.id) - rootTabsOrder.indexOf(b.id)),
+    }
+  }, [rootTabsOrder, tabsMap])
 
   return (
     <ul className='flex flex-col gap-1 overflow-x-clip pb-4 px-3 scrollbar-thin overflow-y-auto h-full scrollbar-track-zinc-700 scrollbar-thumb-zinc-500'>
@@ -125,11 +148,13 @@ function TabItem({ tab, tabs, depth = 0 }: { tabs: Tab[]; tab: Tab; depth?: numb
   const [expanded, setExpanded] = React.useState(true)
   const children = React.useMemo(
     () =>
-      tabs.filter((child) => {
-        if (!child.parent) return false
-        return child.parent === tab.id
-      }),
-    [tabs, tab.id],
+      tabs
+        .filter((child) => {
+          if (!child.parent) return false
+          return child.parent === tab.id
+        })
+        .sort((a, b) => tab.children?.indexOf(a.id) - tab.children?.indexOf(b.id)),
+    [tabs, tab.id, tab.children],
   )
 
   React.useEffect(() => {
@@ -171,7 +196,7 @@ function TabItem({ tab, tabs, depth = 0 }: { tabs: Tab[]; tab: Tab; depth?: numb
               setDropLocation('above')
             } else if (isWithinYAxisRegion(e.pageY, rect, [0.2, 0.6])) {
               setDropLocation('child')
-            } else {
+            } else if (children.length === 0) {
               setDropLocation('below')
             }
           }
@@ -184,15 +209,24 @@ function TabItem({ tab, tabs, depth = 0 }: { tabs: Tab[]; tab: Tab; depth?: numb
           setDraggingTab(tab.id)
         }}
         onDrop={() => {
-          const newParentId =
-            dropLocation === 'above'
-              ? tab.parent || null
-              : dropLocation === 'below'
-                ? tab.parent || null
-                : dropLocation === 'child'
-                  ? tab.id
-                  : null
-          void ipcRenderer.invoke(ControlEmittedEvents.ChangeTabParent, draggingTab, newParentId)
+          if (!draggingTab) return
+
+          // const newParentId =
+          //   dropLocation === 'above'
+          //     ? tab.parent || null
+          //     : dropLocation === 'below'
+          //       ? tab.parent || null
+          //       : dropLocation === 'child'
+          //         ? tab.id
+          //         : null
+          void ipcRenderer.invoke(
+            ControlEmittedEvents.ChangeTabParent,
+            draggingTab,
+            dropLocation !== 'child' ? tab.parent || null : tab.id,
+            dropLocation !== 'child' ? tab.id : null,
+            dropLocation !== 'child' ? dropLocation : null,
+          )
+
           setDraggingTab(null)
         }}
         onDragEnd={() => {
@@ -254,7 +288,7 @@ function TabItem({ tab, tabs, depth = 0 }: { tabs: Tab[]; tab: Tab; depth?: numb
         </div>
       </div>
       {expanded && !!children.length && (
-        <ul draggable data-dept={depth + 1} className='w-full flex flex-col gap-1 box-border'>
+        <ul data-dept={depth + 1} className='w-full flex flex-col gap-1 box-border'>
           {children.map((parent) => {
             return <TabItem key={parent.id} tab={parent} tabs={tabs} depth={depth + 1} />
           })}

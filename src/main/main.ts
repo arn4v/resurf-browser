@@ -48,6 +48,7 @@ type StoredPreferences = {
   window_bounds: Electron.Rectangle | null
   sidebar_width: number
   tabs: TabsMap
+  root_tabs_order: string[]
   active_tab: string | null
   adblock_enabled: boolean
   search_engine: SearchEngine
@@ -58,6 +59,7 @@ const preferencesStore = new Store<StoredPreferences>({
   defaults: {
     active_tab: null,
     tabs: {},
+    root_tabs_order: [],
     adblock_enabled: true,
     search_engine: SearchEngine.Google,
     tab_close_behavior: TabCloseBehavior.Elevate,
@@ -111,10 +113,11 @@ class BidiMap<K, V> {
 class AppWindow {
   window: BrowserWindow
   sidebarView: BrowserView
+  rootTabsOrder: string[] = []
+  tabs = new Map<string, Tab>()
   tabToBrowserView = new Map<string, BrowserView>()
   tabToWebContentsId = new BidiMap<string, number>()
   tabPlayingMedia: string | null = null
-  tabs = new Map<string, Tab>()
   activeTab: string | null = null
   shortcutManager: ShortcutManager
   blocker: ElectronBlocker | undefined
@@ -154,21 +157,20 @@ class AppWindow {
     void this.setupAdblocker()
 
     this.restoreTabsOrCreateBlank()
-
-    setInterval(() => {
-      this.persistTabs()
-    }, 2000)
   }
 
   getPersistedTabs() {
-    return preferencesStore.get('tabs')
+    return {
+      tabs: preferencesStore.get('tabs'),
+      rootTabsOrder: preferencesStore.get('root_tabs_order'),
+    }
   }
 
   restoreTabsOrCreateBlank() {
-    const savedTabs = this.getPersistedTabs()
-    if (savedTabs && Object.entries(savedTabs).length >= 1) {
-      const tabIds = new Set(Object.keys(savedTabs))
-      const tabsArr = Object.entries(savedTabs)
+    const { rootTabsOrder = [], tabs } = this.getPersistedTabs()
+    if (tabs && Object.entries(tabs).length >= 1) {
+      const tabIds = new Set(Object.keys(tabs))
+      const tabsArr = Object.entries(tabs)
         .map(([id, tab]) => {
           return [
             id,
@@ -184,8 +186,8 @@ class AppWindow {
         .filter(([_, tab]) => {
           return !!tab.id && !!tab.url
         })
-      const tabs = new Map<string, Tab>(tabsArr)
-      this.tabs = tabs
+      this.tabs = new Map<string, Tab>(tabsArr)
+      this.rootTabsOrder = rootTabsOrder.filter((x) => tabIds.has(x)) || []
       const lastActiveTab = preferencesStore.get('active_tab') || tabsArr[0][0]
       this.setActiveTab(lastActiveTab)
       this.emitUpdateTabs()
@@ -648,18 +650,7 @@ class AppWindow {
       this.destroyFindInPageForTab(tabId)
     })
 
-    // const newActiveTab =
-    //   this.tabCloseBehavior === 'cascade'
-    //     ? startingPoint.parentToChildren[rootId].length > 0
-    //       ? startingPoint.entries[
-    //           clamp(
-    //             _.filter([...startingPoint.ids], _.filter(tabsToClose, rootId)).indexOf(rootId) + 1,
-    //             0,
-    //             startingPoint.map.size - 1,
-    //           )
-    //         ][0]
-    //       : null //tab
-    //     : startingPoint.entries.filter(([_, x]) => x?.parent === rootId)?.[0]?.[0]
+    this.rootTabsOrder = this.rootTabsOrder.filter((x) => !tabsToClose.includes(x))
 
     if (newActiveTab) {
       this.setActiveTab(newActiveTab)
@@ -719,10 +710,10 @@ class AppWindow {
   }
 
   emitUpdateTabs() {
-    this.emitSidebarEvent(
-      MainProcessEmittedEvents.UpdateTabs,
-      Object.fromEntries(this.tabs.entries()),
-    )
+    this.emitSidebarEvent(MainProcessEmittedEvents.UpdateTabs, {
+      tabs: Object.fromEntries(this.tabs.entries()),
+      rootTabsOrder: this.rootTabsOrder,
+    })
     this.emitSidebarEvent(MainProcessEmittedEvents.UpdateActiveTab, this.activeTab)
     this.persistTabs()
   }
@@ -743,15 +734,26 @@ class AppWindow {
     if (reactive) this.emitUpdateTabs()
   }
 
-  createTab(url?: string, focus?: boolean, parent?: string) {
+  createTab(url?: string, focus?: boolean, parentId?: string) {
     if (!url) url = 'about:blank'
     const tabId = createId()
     const tab: Tab = {
       id: tabId,
       url,
       title: url,
-      parent,
+      parent: parentId,
+      children: [],
     }
+    if (parentId) {
+      const parentTab = this.tabs.get(parentId)
+      if (parentTab) {
+        if (!parentTab?.children) {
+          parentTab.children = []
+        }
+        parentTab.children.push(parentId)
+      }
+    }
+    if (!parentId) this.rootTabsOrder.push(tabId)
     const view = this.createWebview(tabId, url)
     if (this.blocker) this.blocker.enableBlockingInSession(view.webContents.session)
     this.tabToBrowserView.set(tabId, view)
@@ -766,7 +768,11 @@ class AppWindow {
   setupTabHandlers() {
     // Tabs
     ipcMain.handle(ControlEmittedEvents.GetInitialState, () => {
-      return { tabs: Object.fromEntries(this.tabs.entries()), activeTab: this.activeTab }
+      return {
+        tabs: Object.fromEntries(this.tabs.entries()),
+        activeTab: this.activeTab,
+        rootTabsOrder: this.rootTabsOrder,
+      }
     })
     ipcMain.on(ControlEmittedEvents.CloseTab, (event, tabId: string) => {
       this.closeTab(tabId)
@@ -1094,7 +1100,7 @@ class AppWindow {
 
   setupSidebarHandlers() {
     // Sidebar
-    ipcMain.handle(ControlEmittedEvents.GetInitialSidebarWidth, (event) => {
+    ipcMain.handle(ControlEmittedEvents.GetInitialSidebarWidth, () => {
       const storedWidth = preferencesStore.get('sidebar_width')
       return storedWidth || 15
     })
@@ -1107,8 +1113,34 @@ class AppWindow {
     })
     ipcMain.handle(
       ControlEmittedEvents.ChangeTabParent,
-      (_, tabId: string, parent: string | null) => {
+      (
+        _,
+        tabId: string,
+        parent: string | null,
+        sibling: string | null = null,
+        move: 'above' | 'below' | null = null,
+      ) => {
         if (!this.tabs.get(tabId) || (parent && !this.tabs.get(parent))) return
+        if (sibling && move) {
+          let order = [...(!parent ? this.rootTabsOrder : this.tabs.get(parent)?.children || [])]
+
+          const currentIndex = order.indexOf(tabId)
+          if (currentIndex > -1) {
+            order.splice(currentIndex, 1)
+          }
+
+          const siblingIndex = order.indexOf(sibling)
+          const newIndex = move === 'above' ? siblingIndex : siblingIndex + 1
+
+          order = [...order.slice(0, newIndex), tabId, ...order.slice(newIndex)]
+
+          if (!parent) {
+            this.rootTabsOrder = order
+          } else {
+            const tab = this.tabs.get(parent)
+            if (tab) tab.children = order
+          }
+        }
         this.updateTabConfig(tabId, {
           parent: parent || undefined,
         })

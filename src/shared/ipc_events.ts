@@ -5,6 +5,7 @@ export enum ControlEmittedEvents {
   CloseTab = 'tabs_close-tab',
   GetInitialSidebarWidth = 'sidebar__set-initial-sidebar-width',
   ChangeTabParent = 'sidebar__change-tab-parent',
+  ChangeTabOrder = 'sidebar__change-tab-order',
 }
 
 export enum MainProcessEmittedEvents {

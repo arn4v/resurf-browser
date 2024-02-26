@@ -4,6 +4,7 @@ export interface Tab {
   title: string
   url: string
   favicon?: string
+  children: string[]
 }
 
 export type TabsMap = Record<string, Tab>
