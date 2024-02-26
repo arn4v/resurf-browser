@@ -1,12 +1,18 @@
-import { globalShortcut, BrowserWindow } from 'electron'
+import { globalShortcut, BrowserWindow, app } from 'electron'
 import { KeyboardShortcuts } from '../shared/keyboard_shortcuts'
 
 export class ShortcutManager {
   private shortcuts: Map<KeyboardShortcuts, () => void> = new Map()
 
   constructor(private window: BrowserWindow) {
-    this.window.on('focus', () => this.registerShortcuts())
-    this.window.on('blur', () => this.unregisterShortcuts())
+    app.on('browser-window-focus', () => {
+      this.registerShortcuts()
+    })
+    app.on('browser-window-blur', () => {
+      this.unregisterShortcuts()
+    })
+    // this.window.on('focus', () => this.registerShortcuts())
+    // this.window.on('blur', () => this.unregisterShortcuts())
     // this.window.on("hide", () => this.unregisterShortcuts());
     // this.window.on("close", () => this.unregisterShortcuts());
     // this.window.on("closed", () => this.unregisterShortcuts());

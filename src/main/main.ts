@@ -111,7 +111,7 @@ class BidiMap<K, V> {
 }
 
 class AppWindow {
-  window: BrowserWindow
+  browserWindow: BrowserWindow
   sidebarView: BrowserView
   rootTabsOrder: string[] = []
   tabs = new Map<string, Tab>()
@@ -124,7 +124,7 @@ class AppWindow {
   currentlyOpenGlobalDialog: 'new_tab' | 'settings' | 'address_bar' | undefined = undefined
 
   constructor() {
-    this.window = new BrowserWindow({
+    this.browserWindow = new BrowserWindow({
       ...this.getWindowBounds(),
       y: 0,
       ...(Env.platform.isMac
@@ -149,7 +149,7 @@ class AppWindow {
     this.settingsView = this.createBrowserViewForControlInterface('settings')
     this.newTabView = this.createBrowserViewForControlInterface('new_tab')
 
-    this.shortcutManager = new ShortcutManager(this.window)
+    this.shortcutManager = new ShortcutManager(this.browserWindow)
     this.registerShortcuts()
     this.setupResizeAndMoveListeners()
     this.setupIpcHandlers()
@@ -239,7 +239,7 @@ class AppWindow {
   }
 
   destroy() {
-    this.window.destroy()
+    this.browserWindow.destroy()
     this.shortcutManager.unregisterShortcuts()
   }
 
@@ -325,7 +325,7 @@ class AppWindow {
   }
 
   getWebviewBounds() {
-    const winBounds = this.window.getBounds()
+    const winBounds = this.browserWindow.getBounds()
     return {
       height: winBounds.height,
       y: 0,
@@ -642,7 +642,7 @@ class AppWindow {
     tabsToClose.forEach((tabId) => {
       const browserView = this.tabToBrowserView.get(tabId)
       if (browserView) {
-        this.window.removeBrowserView(browserView)
+        this.browserWindow.removeBrowserView(browserView)
         browserView.webContents.close()
       }
       this.tabToBrowserView.delete(tabId)
@@ -694,9 +694,9 @@ class AppWindow {
       // Set controlView as top view first, so that controlView zIndex = 0, newActiveView zIndex = 1
       // This fixes the bug where previous active view is on top of controlView, causing it to show when the
       // sidebar is resized
-      this.window.setTopBrowserView(this.sidebarView)
-      this.window.addBrowserView(newActiveView)
-      this.window.setTopBrowserView(newActiveView)
+      this.browserWindow.setTopBrowserView(this.sidebarView)
+      this.browserWindow.addBrowserView(newActiveView)
+      this.browserWindow.setTopBrowserView(newActiveView)
       this.emitUpdateTabs()
     }
 
@@ -792,13 +792,13 @@ class AppWindow {
     const findInPageView =
       this.tabToFindInPageView.get(tabId) || this.createBrowserViewForControlInterface('find')
 
-    this.window.addBrowserView(findInPageView)
-    this.window.setTopBrowserView(findInPageView)
+    this.browserWindow.addBrowserView(findInPageView)
+    this.browserWindow.setTopBrowserView(findInPageView)
     findInPageView.setBounds({
       height: FIND_IN_PAGE_HEIGHT,
       width: FIND_IN_PAGE_WIDTH,
       y: 0,
-      x: this.window.getBounds().width - (FIND_IN_PAGE_WIDTH + 32),
+      x: this.browserWindow.getBounds().width - (FIND_IN_PAGE_WIDTH + 32),
     })
     findInPageView.webContents.focus()
     this.tabToFindInPageView.set(tabId, findInPageView)
@@ -812,7 +812,7 @@ class AppWindow {
 
     const view = this.tabToFindInPageView.get(tabId)
     if (!view) return
-    this.window.removeBrowserView(view)
+    this.browserWindow.removeBrowserView(view)
     this.tabToFindInPageVisibility.set(tabId, false)
   }
 
@@ -875,9 +875,9 @@ class AppWindow {
     this.closeCurrentlyOpenGlobalDialog()
     this.currentlyOpenGlobalDialog = 'new_tab'
     this.newTabOpen = true
-    this.window.addBrowserView(this.newTabView)
-    this.window.setTopBrowserView(this.newTabView)
-    this.newTabView.setBounds({ ...this.window.getBounds(), y: 0 })
+    this.browserWindow.addBrowserView(this.newTabView)
+    this.browserWindow.setTopBrowserView(this.newTabView)
+    this.newTabView.setBounds({ ...this.browserWindow.getBounds(), y: 0 })
     this.newTabView.webContents.send(NewTabEvents.SignalOpen, {
       tabs: [...this.tabs.entries()].map((x) => x[1]),
       activeTab: this.activeTab,
@@ -886,7 +886,7 @@ class AppWindow {
   }
   closeNewTabPopup() {
     this.newTabOpen = false
-    this.window.removeBrowserView(this.newTabView)
+    this.browserWindow.removeBrowserView(this.newTabView)
     this.newTabView.webContents.send(NewTabEvents.Reset)
   }
   toggleNewTabPopup() {
@@ -950,15 +950,15 @@ class AppWindow {
     this.closeCurrentlyOpenGlobalDialog()
     this.currentlyOpenGlobalDialog = 'address_bar'
     this.addressBarOpen = true
-    this.window.addBrowserView(this.addressBarView)
-    this.window.setTopBrowserView(this.addressBarView)
-    this.addressBarView.setBounds({ ...this.window.getBounds(), y: 0 })
+    this.browserWindow.addBrowserView(this.addressBarView)
+    this.browserWindow.setTopBrowserView(this.addressBarView)
+    this.addressBarView.setBounds({ ...this.browserWindow.getBounds(), y: 0 })
     this.addressBarView.webContents.reload()
     this.addressBarView.webContents.focus()
   }
   closeAddressBar() {
     this.addressBarOpen = false
-    this.window.removeBrowserView(this.addressBarView)
+    this.browserWindow.removeBrowserView(this.addressBarView)
     this.addressBarView.webContents.reload()
   }
   toggleAddressBar() {
@@ -1020,17 +1020,17 @@ class AppWindow {
     this.settingsOpen = true
     this.closeCurrentlyOpenGlobalDialog()
     this.currentlyOpenGlobalDialog = 'settings'
-    this.window.addBrowserView(this.settingsView)
-    this.window.setTopBrowserView(this.settingsView)
+    this.browserWindow.addBrowserView(this.settingsView)
+    this.browserWindow.setTopBrowserView(this.settingsView)
     this.settingsView.setBounds({
-      ...this.window.getBounds(),
+      ...this.browserWindow.getBounds(),
       y: 0,
     })
   }
 
   closeSettings() {
     this.settingsOpen = false
-    this.window.removeBrowserView(this.settingsView)
+    this.browserWindow.removeBrowserView(this.settingsView)
     // this.settingsView.webContents.reload()
   }
 
@@ -1070,7 +1070,7 @@ class AppWindow {
   /* -------------------------------------------------------------------------- */
 
   getSidebarWidth() {
-    return this.window.getBounds().width * (this.getSidebarWidthOrDefault() / 100) + 1
+    return this.browserWindow.getBounds().width * (this.getSidebarWidthOrDefault() / 100) + 1
   }
 
   emitSidebarEvent(channel: MainProcessEmittedEvents, ...args: any[]) {
@@ -1081,8 +1081,8 @@ class AppWindow {
     const controlView = this.sidebarView
     controlView.setBackgroundColor('hsla(0, 0%, 100%, 100.0)')
     controlView.setBounds({
-      ...this.window.getBounds(),
-      height: this.window.getBounds().height,
+      ...this.browserWindow.getBounds(),
+      height: this.browserWindow.getBounds().height,
       y: 0,
     })
     controlView.setAutoResize({ width: true, height: true, horizontal: true, vertical: true })
@@ -1090,8 +1090,8 @@ class AppWindow {
 
     this.loadInternalViewURLOrFile(controlView, getInternalViewPath('sidebar'))
 
-    this.window.addBrowserView(controlView)
-    this.window.setTopBrowserView(controlView)
+    this.browserWindow.addBrowserView(controlView)
+    this.browserWindow.setTopBrowserView(controlView)
   }
 
   getSidebarWidthOrDefault() {
@@ -1152,13 +1152,13 @@ class AppWindow {
   /*                               PUBSUB HANDLERS                              */
   /* -------------------------------------------------------------------------- */
   setupResizeAndMoveListeners() {
-    this.window.on('resize', () => {
-      const { width, height, x, y } = this.window.getBounds()
+    this.browserWindow.on('resize', () => {
+      const { width, height, x, y } = this.browserWindow.getBounds()
       // this.getActiveView()?.setBounds(this.getWebviewBounds())
       preferencesStore.set('windowBounds', { width, height, x, y })
     })
-    this.window.on('move', () => {
-      const { width, height, x, y } = this.window.getBounds()
+    this.browserWindow.on('move', () => {
+      const { width, height, x, y } = this.browserWindow.getBounds()
       preferencesStore.set('windowBounds', { width, height, x, y })
     })
   }
@@ -1175,16 +1175,7 @@ class AppWindow {
 export const normalizeNumber = (value: number | undefined): number =>
   value && isFinite(1 / value) ? Math.trunc(value) : 0
 
-const windows = new Map<string, AppWindow>()
-
-function createWindow() {
-  const id = createId()
-  const window = new AppWindow()
-  return {
-    id,
-    window,
-  }
-}
+let window: AppWindow
 
 // This method will be called when Electron has finished
 // initialization and is ready to create browser windows.
@@ -1192,8 +1183,8 @@ function createWindow() {
 app.on('ready', async () => {
   // app.commandLine.appendSwitch('autoplay-policy', 'no-user-gesture-required')
   // await migrateToLatest()
-  const { id, window } = createWindow()
-  windows.set(id, window)
+
+  window = new AppWindow()
   if (Env.platform.isMac && Env.deploy.isDevelopment) {
     app.dock.setIcon(path.join(app.getAppPath(), 'assets/icon.png'))
     app.setName('Resurf Dev')
@@ -1204,19 +1195,17 @@ app.on('ready', async () => {
 // for applications and their menu bar to stay active until the user quits
 // explicitly with Cmd + Q.
 app.on('window-all-closed', () => {
-  if (process.platform !== 'darwin') {
-    windows.forEach((window) => {
-      window.destroy()
-    })
-    windows.clear()
-  }
+  window.destroy()
 })
 
 app.on('activate', () => {
   // On OS X it's common to re-create a window in the app when the
   // dock icon is clicked and there are no other windows open.
   if (BrowserWindow.getAllWindows().length === 0) {
-    const { id, window } = createWindow()
-    windows.set(id, window)
+    window = new AppWindow()
   }
+})
+
+app.on('open-url', (_, url) => {
+  window.createTab(url, true)
 })

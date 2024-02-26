@@ -11,8 +11,9 @@ const config: ForgeConfig = {
   packagerConfig: {
     icon: './assets/icon',
     name: 'Resurf',
-    executableName: process.platform === 'linux' ? 'resurf-browser' : 'resurfBrowser',
+    executableName: 'Resurf',
     asar: true,
+    extendInfo: './Info.plist',
   },
   rebuildConfig: {},
   makers: [new MakerZIP({}, ['darwin']), new MakerSquirrel({})],
@@ -50,7 +51,6 @@ const config: ForgeConfig = {
       [FuseV1Options.OnlyLoadAppFromAsar]: true,
     }),
   ],
-
   hooks: {
     packageAfterPrune: async (forgeConfig, buildPath) => {
       const packageDotJsonPath = path.resolve(buildPath, 'package.json')
