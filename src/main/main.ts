@@ -20,6 +20,7 @@ import { SearchEngine, engineToSearchUrl, engineToTitle } from '~/shared/search_
 import { KeyboardShortcuts } from '../shared/keyboard_shortcuts'
 import { ShortcutManager } from './shortcut_manager'
 import './user_agent'
+import { getFirefoxUA } from './user_agent'
 
 export type Brand<Name extends string, T> = T & { __brand: Name }
 
@@ -263,7 +264,9 @@ class AppWindow {
           enableCompression: true,
         },
         {
-          path: 'adblock.bin',
+          path: Env.deploy.isDevelopment
+            ? 'adblock.bin'
+            : path.join(app.getPath('userData'), 'adblock.bin'),
           read: fs.readFile,
           write: fs.writeFile,
         },
@@ -336,19 +339,34 @@ class AppWindow {
     }
   }
 
+  getAndUpdateTabContent = async (tabId: string) => {
+    const view = this.tabToBrowserView.get(tabId)
+    if (!view) return
+    try {
+      const content = await view.webContents.executeJavaScript(
+        `document.documentElement.innerText`,
+        true,
+      )
+      if (content) this.tabToContent.set(tabId, content)
+    } catch (err) {
+      console.log(err)
+      return null
+    }
+  }
+
   createWebview(tabId: string, url: string) {
     const view = new BrowserView({
       webPreferences: {
         nodeIntegration: false,
-        nodeIntegrationInSubFrames: true,
         scrollBounce: true,
         safeDialogs: true,
         safeDialogsMessage: 'Prevent this page from creating additional dialogs',
-
+        partition: 'persist:webcontent',
+        plugins: true,
         devTools: true,
         contextIsolation: true,
         sandbox: true,
-        autoplayPolicy: 'no-user-gesture-required',
+        autoplayPolicy: 'document-user-activation-required',
         minimumFontSize: 6,
       },
     })
@@ -420,27 +438,7 @@ class AppWindow {
       }
     })
 
-    async function getContent(url: string) {
-      try {
-        const text = await view.webContents.executeJavaScript(
-          `document.documentElement.innerText`,
-          true,
-        )
-        console.log({ text })
-        return text
-        // console.log(html)
-        // const result = await parsePageContent(url, { contentType: 'text', html: html })
-        // console.log(result)
-        // return result.content
-      } catch (err) {
-        console.log(err)
-        return null
-      }
-    }
-
     view.webContents.on('page-title-updated', async (_, title) => {
-      const content = await getContent(url)
-      if (content) this.tabToContent.set(tabId, content)
       this.updateTabConfig(tabId, {
         title,
       })
@@ -458,9 +456,7 @@ class AppWindow {
     view.webContents.on('did-navigate', async () => {
       const url = view.webContents.getURL()
       const title = view.webContents.getTitle()
-      const content = await getContent(url)
-      if (content) this.tabToContent.set(tabId, content)
-      // const content = await getContent(url)
+      await this.getAndUpdateTabContent(tabId)
       this.updateTabConfig(tabId, {
         title,
         url,
@@ -468,9 +464,7 @@ class AppWindow {
     })
 
     view.webContents.on('did-navigate-in-page', async () => {
-      const url = view.webContents.getURL()
-      const content = await getContent(url)
-      if (content) this.tabToContent.set(tabId, content)
+      await this.getAndUpdateTabContent(tabId)
       this.updateTabConfig(tabId, {
         title: view.webContents.getTitle(),
         url,
@@ -488,6 +482,16 @@ class AppWindow {
       return {
         action: 'allow',
       }
+    })
+
+    view.webContents.session.webRequest.onBeforeSendHeaders((details, callback) => {
+      const requestHeaders = Object.assign({}, details.requestHeaders)
+      if (details.url.includes('accounts.google.com')) {
+        requestHeaders['User-Agent'] = getFirefoxUA()
+      }
+      callback({
+        requestHeaders,
+      })
     })
 
     view.webContents.loadURL(url ?? 'about:blank', {
@@ -667,10 +671,14 @@ class AppWindow {
     tabsToClose.forEach((tabId) => {
       const tab = this.tabs.get(tabId)
       if (!tab) return
-      const browserView = this.tabToBrowserView.get(tabId)
-      if (browserView) {
-        this.browserWindow.removeBrowserView(browserView)
-        browserView.webContents.close()
+      const view = this.tabToBrowserView.get(tabId)
+
+      if (view) {
+        if (view.webContents.isDevToolsOpened()) {
+          view.webContents.closeDevTools()
+        }
+        view.webContents.close()
+        this.browserWindow.removeBrowserView(view)
       }
       if (tab.parent && !tabsToClose.includes(tab.parent)) {
         const parent = this.tabs.get(tab.parent)
@@ -682,7 +690,7 @@ class AppWindow {
           })
         }
       }
-      this.tabs.get(tabId)
+      this.tabs.delete(tabId)
       this.tabToBrowserView.delete(tabId)
       this.destroyFindInPageForTab(tabId)
     })

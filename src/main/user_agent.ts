@@ -2,18 +2,26 @@
 // https://github.com/minbrowser/min/blob/master/main/UASwitcher.js
 import { Session, app, session } from 'electron'
 
-app.userAgentFallback = app.userAgentFallback
-  .replace(/resurf\/\S+\s/, '')
-  .replace(/Electron\/\S+\s/, '')
-  .replace(
-    process.versions.chrome,
-    process.versions.chrome
-      .split('.')
-      .map((v, idx) => (idx === 0 ? v : '0'))
-      .join('.'),
-  )
+const DEFAULT_USER_AGENT_BACKUP = app.userAgentFallback
+// const APP_USER_AGENT_PATTERN = ` ${app.name}/${app.getVersion()}`
+// const ELECTRON_USER_AGENTPATTERN = / Electron\/S+\s/
+// const CHROME_USER_AGENT_PATTERN = / Chrome\/S+\s/
 
-function getFirefoxUA() {
+// app.userAgentFallback = defaultUserAgent
+//   .replace(APP_USER_AGENT_PATTERN, '')
+//   .replace(ELECTRON_USER_AGENTPATTERN, '')
+//   .replace(CHROME_USER_AGENT_PATTERN, '')
+//   .replace(
+//     process.versions.chrome,
+//     process.versions.chrome
+//       .split('.')
+//       .map((v, idx) => (idx === 0 ? v : '0'))
+//       .join('.'),
+//   )
+
+app.userAgentFallback = getFirefoxUA()
+
+export function getFirefoxUA() {
   const rootUAs = {
     mac: 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:FXVERSION.0) Gecko/20100101 Firefox/FXVERSION.0',
     windows:
@@ -48,8 +56,8 @@ function getFirefoxUA() {
 Google blocks signin in some cases unless a custom UA is used
 see https://github.com/minbrowser/min/issues/868
 */
-function enableGoogleUASwitcher(ses: Session) {
-  ses.webRequest.onBeforeSendHeaders((details, callback) => {
+function enableGoogleUASwitcher(session: Session) {
+  session.webRequest.onBeforeSendHeaders((details, callback) => {
     if (details.url.includes('accounts.google.com')) {
       const url = new URL(details.url)
 
