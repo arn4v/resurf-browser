@@ -123,6 +123,11 @@ class AppWindow {
   activeTab: string | null = null
   shortcutManager: ShortcutManager
   blocker: ElectronBlocker | undefined
+  closedTabs: {
+    rootTab: boolean
+    orderIndex: number
+    tab: Tab
+  }[] = []
   currentlyOpenGlobalDialog: 'new_tab' | 'settings' | 'address_bar' | undefined = undefined
 
   constructor() {
@@ -635,10 +640,16 @@ class AppWindow {
   closeTab(rootId: string) {
     if (!this.tabs.has(rootId)) return // Exit if the tab is not found
 
-    let tabsToClose: string[] = [rootId]
-    if (this.tabCloseBehavior === 'cascade') {
-      tabsToClose = this.getTabsInTree(rootId)
-    }
+    const tabsToClose = (
+      this.tabCloseBehavior === 'cascade' ? this.getTabsInTree(rootId) : [rootId]
+    ).reduce(
+      (acc, tabId) => {
+        const tab = this.tabs.get(tabId)
+        if (tab) acc[tabId] = tab
+        return acc
+      },
+      {} as Record<string, Tab>,
+    )
 
     // Determine the new active tab
     let newActiveTab: string | null = null
@@ -667,9 +678,8 @@ class AppWindow {
     }
 
     // Remove the tabs and their associated resources
-    tabsToClose.forEach((tabId) => {
-      const tab = this.tabs.get(tabId)
-      if (!tab) return
+    Object.values(tabsToClose).forEach((tab) => {
+      const tabId = tab.id
       const view = this.tabToBrowserView.get(tabId)
 
       if (view) {
@@ -679,7 +689,7 @@ class AppWindow {
         view.webContents.close()
         this.browserWindow.removeBrowserView(view)
       }
-      if (tab.parent && !tabsToClose.includes(tab.parent)) {
+      if (tab.parent && !tabsToClose[tab.parent]) {
         const parent = this.tabs.get(tab.parent)
         if (parent) {
           const updatedChildren = parent.children.filter((_id) => _id !== tabId)
@@ -692,9 +702,15 @@ class AppWindow {
       this.tabs.delete(tabId)
       this.tabToBrowserView.delete(tabId)
       this.destroyFindInPageForTab(tabId)
+      const parent = tab.parent ? tabsToClose[tab.parent] || this.tabs.get(tab.parent)! : null
+      this.closedTabs.push({
+        rootTab: !tab.parent,
+        orderIndex: !parent ? this.rootTabsOrder.indexOf(tab.id) : parent.children.indexOf(tab.id),
+        tab,
+      })
     })
 
-    this.rootTabsOrder = this.rootTabsOrder.filter((x) => !tabsToClose.includes(x))
+    this.rootTabsOrder = this.rootTabsOrder.filter((x) => !tabsToClose[x])
 
     if (newActiveTab) {
       this.setActiveTab(newActiveTab)
