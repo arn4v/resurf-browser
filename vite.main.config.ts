@@ -1,6 +1,5 @@
 import type { ConfigEnv, UserConfig } from 'vite'
 import { defineConfig, mergeConfig } from 'vite'
-import { bytecodePlugin } from 'electron-vite'
 import tsconfigPaths from 'vite-tsconfig-paths'
 import { getBuildConfig, getBuildDefine, external, pluginHotRestart } from './vite.base.config'
 
@@ -20,7 +19,7 @@ export default defineConfig((env) => {
         external,
       },
     },
-    plugins: [tsconfigPaths(), pluginHotRestart('restart'), bytecodePlugin()],
+    plugins: [tsconfigPaths(), pluginHotRestart('restart')],
     define,
     resolve: {
       // Load the Node.js entry.
