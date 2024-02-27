@@ -1,18 +1,18 @@
 import { MakerSquirrel } from '@electron-forge/maker-squirrel'
 import { MakerZIP } from '@electron-forge/maker-zip'
-import { VitePlugin } from '@electron-forge/plugin-vite'
 import { FusesPlugin } from '@electron-forge/plugin-fuses'
-import { FuseV1Options, FuseVersion } from '@electron/fuses'
+import { VitePlugin } from '@electron-forge/plugin-vite'
 import type { ForgeConfig } from '@electron-forge/shared-types'
-import path from 'path'
+import { FuseV1Options, FuseVersion } from '@electron/fuses'
 import fs from 'fs'
+import path from 'path'
 
 const config: ForgeConfig = {
   packagerConfig: {
     icon: './assets/icon',
     name: 'Resurf',
     executableName: 'Resurf',
-    asar: true,
+    // asar: true,
     extendInfo: './Info.plist',
   },
   rebuildConfig: {},
@@ -52,6 +52,16 @@ const config: ForgeConfig = {
     }),
   ],
   hooks: {
+    // async postPackage(forgeConfig, { outputPaths }) {
+    //   const asarPath = path.join(
+    //     outputPaths[0],
+    //     `${forgeConfig.packagerConfig.name}.app/Contents/Resources/app.asar`,
+    //   )
+    //   const archive = await asarmor.open(asarPath)
+    //   await archive.createBackup()
+    //   archive.patch(asarmor.createBloatPatch(50))
+    //   await archive.write(asarPath)
+    // },
     packageAfterPrune: async (forgeConfig, buildPath) => {
       const packageDotJsonPath = path.resolve(buildPath, 'package.json')
       const packageDotJson = fs.readFileSync(packageDotJsonPath)

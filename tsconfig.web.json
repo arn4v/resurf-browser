@@ -1,0 +1,15 @@
+{
+  "extends": "@electron-toolkit/tsconfig/tsconfig.web.json",
+  "include": ["src/renderer", "src/preload/*.d.ts"],
+  "compilerOptions": {
+    "composite": true,
+    "jsx": "react-jsx",
+    "baseUrl": ".",
+    "typeRoots": ["./types"],
+    "paths": {
+      "~/*": ["src/renderer/*"]
+      // "~/preload/*": ["src/preload/*"],
+      // "~/shared/*": ["src/shared/*"]
+    }
+  }
+}

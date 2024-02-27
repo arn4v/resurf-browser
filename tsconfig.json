@@ -1,25 +1,11 @@
 {
-  "compilerOptions": {
-    "target": "ESNext",
-    "module": "CommonJS",
-    "allowJs": true,
-    "skipLibCheck": true,
-    "esModuleInterop": true,
-    "noImplicitAny": true,
-    "sourceMap": true,
-    "strict": true,
-    "jsx": "react-jsx",
-    "outDir": "dist",
-    "moduleResolution": "node",
-    "resolveJsonModule": true,
-    "forceConsistentCasingInFileNames": true,
-    "baseUrl": ".",
-    "typeRoots": ["./types"],
-    "paths": {
-      "~/*": ["src/renderer/*"],
-      "~/preload/*": ["src/preload/*"],
-      "~/shared/*": ["src/shared/*"]
+  "files": [],
+  "references": [
+    {
+      "path": "./tsconfig.web.json"
+    },
+    {
+      "path": "./tsconfig.node.json"
     }
-  },
-  "include": ["src", "forge.config.ts", "types"]
+  ]
 }

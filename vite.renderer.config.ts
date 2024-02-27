@@ -4,6 +4,7 @@ import { defineConfig } from 'vite'
 import tsconfigPaths from 'vite-tsconfig-paths'
 import { pluginExposeRenderer } from './vite.base.config'
 import path from 'path'
+import { bytecodePlugin } from 'electron-vite'
 
 const CONTROL_VIEWS = ['new_tab', 'address_bar', 'find', 'sidebar', 'not_found', 'settings']
 
@@ -33,7 +34,7 @@ export default defineConfig((env) => {
         },
       },
     },
-    plugins: [react(), tsconfigPaths(), pluginExposeRenderer(name)],
+    plugins: [react(), tsconfigPaths(), pluginExposeRenderer(name), bytecodePlugin()],
     resolve: {
       preserveSymlinks: true,
     },
