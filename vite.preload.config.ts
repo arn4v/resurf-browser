@@ -1,11 +1,16 @@
 import type { ConfigEnv, UserConfig } from 'vite'
 import { defineConfig, mergeConfig } from 'vite'
+// import tailwindcss_vite from '@tailwindcss/vite' // Removed static import
 import { getBuildConfig, external, pluginHotRestart } from './vite.base.config'
 
 // https://vitejs.dev/config
-export default defineConfig((env) => {
+export default defineConfig(async (env) => { // Made async
   const forgeEnv = env as ConfigEnv<'build'>
   const { forgeConfigSelf } = forgeEnv
+
+  const tailwindcss_vite_module = await import('@tailwindcss/vite');
+  const tailwindcss_vite = tailwindcss_vite_module.default || tailwindcss_vite_module;
+
   const config: UserConfig = {
     build: {
       rollupOptions: {
@@ -22,7 +27,7 @@ export default defineConfig((env) => {
         },
       },
     },
-    plugins: [pluginHotRestart('reload')],
+    plugins: [tailwindcss_vite(), pluginHotRestart('reload')],
   }
 
   return mergeConfig(getBuildConfig(forgeEnv), config)
