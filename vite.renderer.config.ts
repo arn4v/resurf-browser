@@ -8,11 +8,12 @@ import path from 'path'
 const CONTROL_VIEWS = ['new_tab', 'address_bar', 'find', 'sidebar', 'not_found', 'settings']
 
 // https://vitejs.dev/config
-export default defineConfig((env) => {
+export default defineConfig(async (env) => {
   const forgeEnv = env as ConfigEnv<'renderer'>
   const { root, mode, forgeConfigSelf } = forgeEnv
   const name = forgeConfigSelf.name ?? ''
   const rendererPath = path.resolve(root, 'src/renderer')
+  const { default: tailwindcss } = await import('@tailwindcss/vite')
 
   return {
     root: rendererPath,
@@ -33,7 +34,7 @@ export default defineConfig((env) => {
         },
       },
     },
-    plugins: [react(), tsconfigPaths(), pluginExposeRenderer(name)],
+    plugins: [react(), tsconfigPaths(), pluginExposeRenderer(name), tailwindcss()],
     resolve: {
       preserveSymlinks: true,
     },
