@@ -1,6 +1,6 @@
 import { ElectronBlocker, fullLists } from '@cliqz/adblocker-electron'
 import { createId } from '@paralleldrive/cuid2'
-import { BrowserView, BrowserWindow, app, clipboard, ipcMain, screen } from 'electron'
+import { WebContentsView, BrowserWindow, app, clipboard, ipcMain, screen } from 'electron'
 import contextMenu from 'electron-context-menu'
 import Store from 'electron-store'
 import { promises as fs } from 'node:fs'
@@ -113,10 +113,10 @@ class BidiMap<K, V> {
 
 class AppWindow {
   browserWindow: BrowserWindow
-  sidebarView: BrowserView
+  sidebarView: WebContentsView
   rootTabsOrder: string[] = []
   tabs = new Map<string, Tab>()
-  tabToBrowserView = new Map<string, BrowserView>()
+  tabToBrowserView = new Map<string, WebContentsView>()
   tabToContent = new Map<string, string>()
   tabToWebContentsId = new BidiMap<string, number>()
   tabPlayingMedia: string | null = null
@@ -359,7 +359,7 @@ class AppWindow {
   }
 
   createWebview(tabId: string, url: string) {
-    const view = new BrowserView({
+    const view = new WebContentsView({
       webPreferences: {
         nodeIntegration: false,
         scrollBounce: true,
@@ -525,7 +525,7 @@ class AppWindow {
   }
 
   createBrowserViewForControlInterface(name: string) {
-    const view = new BrowserView({
+    const view = new WebContentsView({
       webPreferences: {
         nodeIntegration: true,
         // contextIsolation: false,
@@ -557,7 +557,7 @@ class AppWindow {
     return view
   }
 
-  loadInternalViewURLOrFile(view: BrowserView, urlOrFilePath: string) {
+  loadInternalViewURLOrFile(view: WebContentsView, urlOrFilePath: string) {
     if (CONTROL_UI_VITE_DEV_SERVER_URL) {
       view.webContents.loadURL(urlOrFilePath)
     } else {
@@ -687,7 +687,7 @@ class AppWindow {
           view.webContents.closeDevTools()
         }
         view.webContents.close()
-        this.browserWindow.removeBrowserView(view)
+        this.browserWindow.contentView.removeChildView(view)
       }
       if (tab.parent && !tabsToClose[tab.parent]) {
         const parent = this.tabs.get(tab.parent)
@@ -754,9 +754,12 @@ class AppWindow {
       // Set controlView as top view first, so that controlView zIndex = 0, newActiveView zIndex = 1
       // This fixes the bug where previous active view is on top of controlView, causing it to show when the
       // sidebar is resized
-      this.browserWindow.setTopBrowserView(this.sidebarView)
-      this.browserWindow.addBrowserView(newActiveView)
-      this.browserWindow.setTopBrowserView(newActiveView)
+      this.browserWindow.contentView.addChildView(this.sidebarView)
+      this.browserWindow.contentView.addChildView(newActiveView)
+      // Set the new view as the top view
+      // TODO: This might not be the direct equivalent, check docs if issues arise with z-indexing or focus.
+      // For now, re-adding brings it to top.
+      this.browserWindow.contentView.addChildView(newActiveView)
       this.emitUpdateTabs()
     }
 
@@ -846,15 +849,16 @@ class AppWindow {
   /* -------------------------------------------------------------------------- */
   /*                                FIND IN PAGE                                */
   /* -------------------------------------------------------------------------- */
-  tabToFindInPageView = new Map<string, BrowserView>()
+  tabToFindInPageView = new Map<string, WebContentsView>()
   tabToFindInPageVisibility = new Map<string, boolean>()
 
   showFindInPageForTab(tabId: string) {
     const findInPageView =
       this.tabToFindInPageView.get(tabId) || this.createBrowserViewForControlInterface('find')
 
-    this.browserWindow.addBrowserView(findInPageView)
-    this.browserWindow.setTopBrowserView(findInPageView)
+    this.browserWindow.contentView.addChildView(findInPageView)
+    // TODO: Ensure this brings the view to the top. Re-adding is the current strategy.
+    this.browserWindow.contentView.addChildView(findInPageView)
     findInPageView.setBounds({
       height: FIND_IN_PAGE_HEIGHT,
       width: FIND_IN_PAGE_WIDTH,
@@ -873,7 +877,7 @@ class AppWindow {
 
     const view = this.tabToFindInPageView.get(tabId)
     if (!view) return
-    this.browserWindow.removeBrowserView(view)
+    this.browserWindow.contentView.removeChildView(view)
     this.tabToFindInPageVisibility.set(tabId, false)
   }
 
@@ -930,14 +934,15 @@ class AppWindow {
   /* -------------------------------------------------------------------------- */
   /*                               NEW TAB DIALOG                               */
   /* -------------------------------------------------------------------------- */
-  newTabView: BrowserView
+  newTabView: WebContentsView
   newTabOpen = false
   openNewTabPopup() {
     this.closeCurrentlyOpenGlobalDialog()
     this.currentlyOpenGlobalDialog = 'new_tab'
     this.newTabOpen = true
-    this.browserWindow.addBrowserView(this.newTabView)
-    this.browserWindow.setTopBrowserView(this.newTabView)
+    this.browserWindow.contentView.addChildView(this.newTabView)
+    // TODO: Ensure this brings the view to the top. Re-adding is the current strategy.
+    this.browserWindow.contentView.addChildView(this.newTabView)
     this.newTabView.setBounds({ ...this.browserWindow.getBounds(), y: 0 })
     this.newTabView.webContents.send(NewTabEvents.SignalOpen, {
       tabs: [...this.tabs.entries()].map((x) => ({
@@ -950,7 +955,7 @@ class AppWindow {
   }
   closeNewTabPopup() {
     this.newTabOpen = false
-    this.browserWindow.removeBrowserView(this.newTabView)
+    this.browserWindow.contentView.removeChildView(this.newTabView)
     this.newTabView.webContents.send(NewTabEvents.Reset)
   }
   toggleNewTabPopup() {
@@ -1008,21 +1013,22 @@ class AppWindow {
   /* -------------------------------------------------------------------------- */
   /*                                 ADDRESS BAR                                */
   /* -------------------------------------------------------------------------- */
-  addressBarView: BrowserView
+  addressBarView: WebContentsView
   addressBarOpen = false
   openAddressBar() {
     this.closeCurrentlyOpenGlobalDialog()
     this.currentlyOpenGlobalDialog = 'address_bar'
     this.addressBarOpen = true
-    this.browserWindow.addBrowserView(this.addressBarView)
-    this.browserWindow.setTopBrowserView(this.addressBarView)
+    this.browserWindow.contentView.addChildView(this.addressBarView)
+    // TODO: Ensure this brings the view to the top. Re-adding is the current strategy.
+    this.browserWindow.contentView.addChildView(this.addressBarView)
     this.addressBarView.setBounds({ ...this.browserWindow.getBounds(), y: 0 })
     this.addressBarView.webContents.reload()
     this.addressBarView.webContents.focus()
   }
   closeAddressBar() {
     this.addressBarOpen = false
-    this.browserWindow.removeBrowserView(this.addressBarView)
+    this.browserWindow.contentView.removeChildView(this.addressBarView)
     this.addressBarView.webContents.reload()
   }
   toggleAddressBar() {
@@ -1065,7 +1071,7 @@ class AppWindow {
   /* -------------------------------------------------------------------------- */
   /*                                  SETTINGS                                  */
   /* -------------------------------------------------------------------------- */
-  settingsView: BrowserView
+  settingsView: WebContentsView
   settingsOpen = false
 
   get tabCloseBehavior() {
@@ -1090,8 +1096,9 @@ class AppWindow {
     this.settingsOpen = true
     this.closeCurrentlyOpenGlobalDialog()
     this.currentlyOpenGlobalDialog = 'settings'
-    this.browserWindow.addBrowserView(this.settingsView)
-    this.browserWindow.setTopBrowserView(this.settingsView)
+    this.browserWindow.contentView.addChildView(this.settingsView)
+    // TODO: Ensure this brings the view to the top. Re-adding is the current strategy.
+    this.browserWindow.contentView.addChildView(this.settingsView)
     this.settingsView.setBounds({
       ...this.browserWindow.getBounds(),
       y: 0,
@@ -1100,7 +1107,7 @@ class AppWindow {
 
   closeSettings() {
     this.settingsOpen = false
-    this.browserWindow.removeBrowserView(this.settingsView)
+    this.browserWindow.contentView.removeChildView(this.settingsView)
     // this.settingsView.webContents.reload()
   }
 
@@ -1160,8 +1167,9 @@ class AppWindow {
 
     this.loadInternalViewURLOrFile(controlView, getInternalViewPath('sidebar'))
 
-    this.browserWindow.addBrowserView(controlView)
-    this.browserWindow.setTopBrowserView(controlView)
+    this.browserWindow.contentView.addChildView(controlView)
+    // TODO: Ensure this brings the view to the top. Re-adding is the current strategy.
+    this.browserWindow.contentView.addChildView(controlView)
   }
 
   getSidebarWidthOrDefault() {
