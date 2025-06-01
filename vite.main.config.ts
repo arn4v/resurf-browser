@@ -19,7 +19,7 @@ export default defineConfig((env) => {
         external,
       },
     },
-    plugins: [tsconfigPaths(), pluginHotRestart('restart')],
+    plugins: [tsconfigPaths()/*, pluginHotRestart('restart')*/],
     define,
     resolve: {
       // Load the Node.js entry.

@@ -1,6 +1,7 @@
+console.log('!!!!!!!!!!!!!!!!!!!!!!!! MAIN.TS EXECUTING !!!!!!!!!!!!!!!!!!!!!!!!!!');
 import { ElectronBlocker, fullLists } from '@cliqz/adblocker-electron'
 import { createId } from '@paralleldrive/cuid2'
-import { BrowserView, BrowserWindow, app, clipboard, ipcMain, screen } from 'electron'
+import { WebContentsView, BrowserWindow, app, clipboard, ipcMain, screen } from 'electron'
 import contextMenu from 'electron-context-menu'
 import Store from 'electron-store'
 import { promises as fs } from 'node:fs'
@@ -39,9 +40,9 @@ export const Env = {
 }
 
 // Handle creating/removing shortcuts on Windows when installing/uninstalling.
-if (require('electron-squirrel-startup')) {
-  app.quit()
-}
+// if (require('electron-squirrel-startup')) {
+//   app.quit()
+// }
 
 const preloadPath = path.resolve(__dirname, './preload.js')
 
@@ -113,10 +114,10 @@ class BidiMap<K, V> {
 
 class AppWindow {
   browserWindow: BrowserWindow
-  sidebarView: BrowserView
+  sidebarView: WebContentsView
   rootTabsOrder: string[] = []
   tabs = new Map<string, Tab>()
-  tabToBrowserView = new Map<string, BrowserView>()
+  tabToBrowserView = new Map<string, WebContentsView>()
   tabToContent = new Map<string, string>()
   tabToWebContentsId = new BidiMap<string, number>()
   tabPlayingMedia: string | null = null
@@ -148,6 +149,16 @@ class AppWindow {
         nodeIntegration: true,
       },
     })
+
+    console.log('[AppWindow] BrowserWindow created. Showing and focusing.');
+    this.browserWindow.show();
+    this.browserWindow.focus();
+    // Add a listener for when the window is closed
+    this.browserWindow.on('closed', () => {
+      console.log('[AppWindow] browserWindow "closed" event fired.');
+      // Setting this.browserWindow to null is a common pattern
+      // this.browserWindow = null; // This would be an issue if other parts of the class expect it
+    });
 
     this.sidebarView = this.createBrowserViewForControlInterface('')
     this.setupSidebarView()
@@ -359,7 +370,7 @@ class AppWindow {
   }
 
   createWebview(tabId: string, url: string) {
-    const view = new BrowserView({
+    const view = new WebContentsView({
       webPreferences: {
         nodeIntegration: false,
         scrollBounce: true,
@@ -376,12 +387,12 @@ class AppWindow {
     })
     if (this.blocker) this.blocker.enableBlockingInSession(view.webContents.session)
 
-    view.setAutoResize({
-      width: true,
-      height: true,
-      horizontal: true,
-      vertical: true,
-    })
+    // view.setAutoResize({
+    //   width: true,
+    //   height: true,
+    //   horizontal: true,
+    //   vertical: true,
+    // })
     view.setBounds(this.getWebviewBounds())
     view.setBackgroundColor('#FFFFFF')
 
@@ -525,7 +536,7 @@ class AppWindow {
   }
 
   createBrowserViewForControlInterface(name: string) {
-    const view = new BrowserView({
+    const view = new WebContentsView({
       webPreferences: {
         nodeIntegration: true,
         // contextIsolation: false,
@@ -546,18 +557,18 @@ class AppWindow {
     view.webContents.setVisualZoomLevelLimits(1, 1)
     // view.webContents.setLayoutZoomLevelLimits(0, 0)
 
-    view.setAutoResize({
-      width: false,
-      height: true,
-      horizontal: true,
-      vertical: true,
-    })
+    // view.setAutoResize({
+    //   width: false,
+    //   height: true,
+    //   horizontal: true,
+    //   vertical: true,
+    // })
     this.loadInternalViewURLOrFile(view, getInternalViewPath(name))
     // view.setBackgroundColor('hsla(0,0,0%,100.0)')
     return view
   }
 
-  loadInternalViewURLOrFile(view: BrowserView, urlOrFilePath: string) {
+  loadInternalViewURLOrFile(view: WebContentsView, urlOrFilePath: string) {
     if (CONTROL_UI_VITE_DEV_SERVER_URL) {
       view.webContents.loadURL(urlOrFilePath)
     } else {
@@ -687,7 +698,7 @@ class AppWindow {
           view.webContents.closeDevTools()
         }
         view.webContents.close()
-        this.browserWindow.removeBrowserView(view)
+        this.browserWindow.contentView.removeChildView(view)
       }
       if (tab.parent && !tabsToClose[tab.parent]) {
         const parent = this.tabs.get(tab.parent)
@@ -754,9 +765,12 @@ class AppWindow {
       // Set controlView as top view first, so that controlView zIndex = 0, newActiveView zIndex = 1
       // This fixes the bug where previous active view is on top of controlView, causing it to show when the
       // sidebar is resized
-      this.browserWindow.setTopBrowserView(this.sidebarView)
-      this.browserWindow.addBrowserView(newActiveView)
-      this.browserWindow.setTopBrowserView(newActiveView)
+      // this.browserWindow.setTopBrowserView(this.sidebarView)
+      this.browserWindow.contentView.addChildView(this.sidebarView) // Ensure sidebar is there
+      this.sidebarView.bringToFront() //
+      this.browserWindow.contentView.addChildView(newActiveView)
+      newActiveView.bringToFront()
+      // this.browserWindow.setTopBrowserView(newActiveView)
       this.emitUpdateTabs()
     }
 
@@ -846,15 +860,16 @@ class AppWindow {
   /* -------------------------------------------------------------------------- */
   /*                                FIND IN PAGE                                */
   /* -------------------------------------------------------------------------- */
-  tabToFindInPageView = new Map<string, BrowserView>()
+  tabToFindInPageView = new Map<string, WebContentsView>()
   tabToFindInPageVisibility = new Map<string, boolean>()
 
   showFindInPageForTab(tabId: string) {
     const findInPageView =
       this.tabToFindInPageView.get(tabId) || this.createBrowserViewForControlInterface('find')
 
-    this.browserWindow.addBrowserView(findInPageView)
-    this.browserWindow.setTopBrowserView(findInPageView)
+    this.browserWindow.contentView.addChildView(findInPageView)
+    // this.browserWindow.setTopBrowserView(findInPageView)
+    findInPageView.bringToFront()
     findInPageView.setBounds({
       height: FIND_IN_PAGE_HEIGHT,
       width: FIND_IN_PAGE_WIDTH,
@@ -873,7 +888,7 @@ class AppWindow {
 
     const view = this.tabToFindInPageView.get(tabId)
     if (!view) return
-    this.browserWindow.removeBrowserView(view)
+    this.browserWindow.contentView.removeChildView(view)
     this.tabToFindInPageVisibility.set(tabId, false)
   }
 
@@ -930,14 +945,15 @@ class AppWindow {
   /* -------------------------------------------------------------------------- */
   /*                               NEW TAB DIALOG                               */
   /* -------------------------------------------------------------------------- */
-  newTabView: BrowserView
+  newTabView: WebContentsView
   newTabOpen = false
   openNewTabPopup() {
     this.closeCurrentlyOpenGlobalDialog()
     this.currentlyOpenGlobalDialog = 'new_tab'
     this.newTabOpen = true
-    this.browserWindow.addBrowserView(this.newTabView)
-    this.browserWindow.setTopBrowserView(this.newTabView)
+    this.browserWindow.contentView.addChildView(this.newTabView)
+    // this.browserWindow.setTopBrowserView(this.newTabView)
+    this.newTabView.bringToFront()
     this.newTabView.setBounds({ ...this.browserWindow.getBounds(), y: 0 })
     this.newTabView.webContents.send(NewTabEvents.SignalOpen, {
       tabs: [...this.tabs.entries()].map((x) => ({
@@ -950,7 +966,7 @@ class AppWindow {
   }
   closeNewTabPopup() {
     this.newTabOpen = false
-    this.browserWindow.removeBrowserView(this.newTabView)
+    this.browserWindow.contentView.removeChildView(this.newTabView)
     this.newTabView.webContents.send(NewTabEvents.Reset)
   }
   toggleNewTabPopup() {
@@ -1008,21 +1024,22 @@ class AppWindow {
   /* -------------------------------------------------------------------------- */
   /*                                 ADDRESS BAR                                */
   /* -------------------------------------------------------------------------- */
-  addressBarView: BrowserView
+  addressBarView: WebContentsView
   addressBarOpen = false
   openAddressBar() {
     this.closeCurrentlyOpenGlobalDialog()
     this.currentlyOpenGlobalDialog = 'address_bar'
     this.addressBarOpen = true
-    this.browserWindow.addBrowserView(this.addressBarView)
-    this.browserWindow.setTopBrowserView(this.addressBarView)
+    this.browserWindow.contentView.addChildView(this.addressBarView)
+    // this.browserWindow.setTopBrowserView(this.addressBarView)
+    this.addressBarView.bringToFront()
     this.addressBarView.setBounds({ ...this.browserWindow.getBounds(), y: 0 })
     this.addressBarView.webContents.reload()
     this.addressBarView.webContents.focus()
   }
   closeAddressBar() {
     this.addressBarOpen = false
-    this.browserWindow.removeBrowserView(this.addressBarView)
+    this.browserWindow.contentView.removeChildView(this.addressBarView)
     this.addressBarView.webContents.reload()
   }
   toggleAddressBar() {
@@ -1065,7 +1082,7 @@ class AppWindow {
   /* -------------------------------------------------------------------------- */
   /*                                  SETTINGS                                  */
   /* -------------------------------------------------------------------------- */
-  settingsView: BrowserView
+  settingsView: WebContentsView
   settingsOpen = false
 
   get tabCloseBehavior() {
@@ -1090,8 +1107,9 @@ class AppWindow {
     this.settingsOpen = true
     this.closeCurrentlyOpenGlobalDialog()
     this.currentlyOpenGlobalDialog = 'settings'
-    this.browserWindow.addBrowserView(this.settingsView)
-    this.browserWindow.setTopBrowserView(this.settingsView)
+    this.browserWindow.contentView.addChildView(this.settingsView)
+    // this.browserWindow.setTopBrowserView(this.settingsView)
+    this.settingsView.bringToFront()
     this.settingsView.setBounds({
       ...this.browserWindow.getBounds(),
       y: 0,
@@ -1100,7 +1118,7 @@ class AppWindow {
 
   closeSettings() {
     this.settingsOpen = false
-    this.browserWindow.removeBrowserView(this.settingsView)
+    this.browserWindow.contentView.removeChildView(this.settingsView)
     // this.settingsView.webContents.reload()
   }
 
@@ -1155,13 +1173,14 @@ class AppWindow {
       height: this.browserWindow.getBounds().height,
       y: 0,
     })
-    controlView.setAutoResize({ width: true, height: true, horizontal: true, vertical: true })
+    // controlView.setAutoResize({ width: true, height: true, horizontal: true, vertical: true })
     // and load the index.html of the app.
 
     this.loadInternalViewURLOrFile(controlView, getInternalViewPath('sidebar'))
 
-    this.browserWindow.addBrowserView(controlView)
-    this.browserWindow.setTopBrowserView(controlView)
+    this.browserWindow.contentView.addChildView(controlView)
+    controlView.bringToFront()
+    // this.browserWindow.setTopBrowserView(controlView)
   }
 
   getSidebarWidthOrDefault() {
@@ -1254,7 +1273,9 @@ app.on('ready', async () => {
   // app.commandLine.appendSwitch('autoplay-policy', 'no-user-gesture-required')
   // await migrateToLatest()
 
+  console.log('[AppReady] Creating AppWindow...');
   window = new AppWindow()
+  console.log('[AppReady] AppWindow created.');
   if (Env.platform.isMac && Env.deploy.isDevelopment) {
     app.dock.setIcon(path.join(app.getAppPath(), 'assets/icon.png'))
     app.setName('Resurf Dev')
